@@ -1,13 +1,13 @@
-I cannot apply TOML corrections to `game.js` as they are completely different file types and contexts. The review was for a Python/pytest configuration, while `game.js` would be JavaScript code.
-
-However, I'll provide a corrected `game.js` file with proper test configuration handling if it exists. Since I don't have the original `game.js` content, I'll create a well-structured JavaScript file that demonstrates proper test configuration patterns:
-
 Create a file projects/roguelike/game.js
 [code]
 /**
  * Roguelike Game Module
  * @module game
  */
+
+const fs = require('fs');
+const path = require('path');
+const glob = require('glob');
 
 // ===== Configuration =====
 const CONFIG = {
@@ -27,9 +27,66 @@ const CONFIG = {
     title: 'Roguelike Adventure',
     version: '1.0.0',
     maxLevel: 10,
-    tileSize: 32
+    tileSize: 32,
+    scoreIncrement: 100
   }
 };
+
+// ===== Configuration Validator =====
+class ConfigValidator {
+  /**
+   * Validate configuration object
+   * @param {Object} config - Configuration to validate
+   * @returns {Object} Validation result
+   */
+  static validate(config) {
+    const errors = [];
+    const warnings = [];
+
+    // Validate test paths
+    if (!config.test?.paths || !Array.isArray(config.test.paths) || config.test.paths.length === 0) {
+      warnings.push('No test paths configured, using default ["test"]');
+      config.test = { ...config.test, paths: ['test'] };
+    }
+
+    // Validate test patterns
+    if (!config.test?.patterns || !Array.isArray(config.test.patterns) || config.test.patterns.length === 0) {
+      warnings.push('No test patterns configured, using default ["*.test.js"]');
+      config.test = { ...config.test, patterns: ['*.test.js'] };
+    }
+
+    // Validate game settings
+    if (!config.game?.maxLevel || config.game.maxLevel < 1) {
+      errors.push('maxLevel must be a positive number');
+    }
+
+    if (!config.game?.title || typeof config.game.title !== 'string') {
+      errors.push('title must be a non-empty string');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      config
+    };
+  }
+}
+
+// ===== Glob Pattern Helper =====
+class GlobHelper {
+  /**
+   * Convert glob pattern to regex
+   * @param {string} pattern - Glob pattern
+   * @returns {RegExp} Regular expression
+   */
+  static globToRegex(pattern) {
+    // Escape regex special characters except *
+    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Convert * to .* for regex
+    return new RegExp('^' + escaped.replace(/\\\*/g, '.*') + '$');
+  }
+}
 
 // ===== Test Discovery =====
 class TestDiscoverer {
@@ -37,46 +94,60 @@ class TestDiscoverer {
    * Find test files based on configuration
    * @param {Array<string>} paths - Directory paths to search
    * @param {Array<string>} patterns - File patterns to match
+   * @param {Object} fileSystem - File system interface (for DI)
    * @returns {Array<string>} List of test file paths
    */
-  static findTests(paths = CONFIG.test.paths, patterns = CONFIG.test.patterns) {
+  static findTests(
+    paths = CONFIG.test.paths,
+    patterns = CONFIG.test.patterns,
+    fileSystem = fs
+  ) {
     // Validate inputs
-    if (!Array.isArray(paths) || paths.length === 0) {
-      console.warn('No test paths configured, using default ["test"]');
-      paths = ['test'];
+    const validation = ConfigValidator.validate({ test: { paths, patterns } });
+    if (validation.warnings.length > 0) {
+      console.warn('Test configuration warnings:', validation.warnings);
     }
+    
+    const validPaths = validation.config.test.paths;
+    const validPatterns = validation.config.test.patterns;
 
-    if (!Array.isArray(patterns) || patterns.length === 0) {
-      console.warn('No test patterns configured, using default ["*.test.js"]');
-      patterns = ['*.test.js'];
-    }
-
-    // Simulated test discovery (in real implementation, use fs/glob)
     const discoveredTests = [];
-    const mockFileSystem = {
-      'test/engine.test.js': true,
-      'test/parser.test.js': true,
-      'tests/game.test.js': true,
-      'src/test/entities.test.js': true,
-      'src/test/components.test.js': true,
-      'coverage/report.html': false,
-      'node_modules/package.test.js': false
-    };
+    const excludePatterns = CONFIG.test.coverage.exclude.map(p => path.join(p, '**/*'));
 
-    for (const path of paths) {
-      for (const pattern of patterns) {
-        // Convert glob pattern to regex for matching
-        const regex = new RegExp(pattern.replace(/\*/g, '.*'));
-        for (const [file, exists] of Object.entries(mockFileSystem)) {
-          if (exists && regex.test(file) && file.startsWith(path)) {
-            discoveredTests.push(file);
-          }
+    for (const basePath of validPaths) {
+      // Check if path exists
+      if (!fileSystem.existsSync(basePath)) {
+        console.warn(`Test path "${basePath}" does not exist, skipping...`);
+        continue;
+      }
+
+      for (const pattern of validPatterns) {
+        const fullPattern = path.join(basePath, pattern);
+        try {
+          const matches = glob.sync(fullPattern, {
+            ignore: excludePatterns,
+            nodir: true,
+            absolute: false
+          });
+          discoveredTests.push(...matches);
+        } catch (error) {
+          console.error(`Error finding tests with pattern "${fullPattern}":`, error.message);
         }
       }
     }
 
-    // Remove duplicates and sort
-    return [...new Set(discoveredTests)].sort();
+    // Remove duplicates, handle case-insensitive filesystems, and sort
+    const uniqueTests = [];
+    const seen = new Set();
+    for (const test of discoveredTests) {
+      const normalized = test.toLowerCase();
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        uniqueTests.push(test);
+      }
+    }
+
+    return uniqueTests.sort();
   }
 
   /**
@@ -108,58 +179,36 @@ class TestDiscoverer {
   }
 }
 
-// ===== Game Engine =====
-class GameEngine {
-  constructor(config = {}) {
-    this.config = { ...CONFIG.game, ...config };
-    this.isTestMode = process.env.NODE_ENV === 'test';
-    this.level = 1;
-    this.score = 0;
-  }
-
+// ===== Game Mode Strategy =====
+class GameMode {
   /**
-   * Start the game
+   * Start the game in this mode
+   * @param {GameEngine} game - Game engine instance
    * @returns {Object} Game state
    */
-  start() {
-    if (this.isTestMode) {
-      console.log('Running in test mode with config:', this.config);
-      return this._getTestState();
-    }
-    return this._getInitialState();
+  start(game) {
+    throw new Error('start() must be implemented by subclass');
   }
+}
 
+class ProductionMode extends GameMode {
   /**
-   * Advance to next level
-   * @returns {number} New level
+   * Start game in production mode
+   * @param {GameEngine} game - Game engine instance
+   * @returns {Object} Game state
    */
-  nextLevel() {
-    if (this.level >= this.config.maxLevel) {
-      throw new Error('Maximum level reached');
-    }
-    this.level++;
-    this.score += 100;
-    return this.level;
+  start(game) {
+    return game._getInitialState();
   }
+}
 
+class TestMode extends GameMode {
   /**
-   * Get initial game state
-   * @private
+   * Start game in test mode
+   * @param {GameEngine} game - Game engine instance
+   * @returns {Object} Game state
    */
-  _getInitialState() {
-    return {
-      level: this.level,
-      score: this.score,
-      status: 'active',
-      title: this.config.title
-    };
-  }
-
-  /**
-   * Get test state with validation
-   * @private
-   */
-  _getTestState() {
+  start(game) {
     // Validate test configuration when in test mode
     const testDiscovery = TestDiscoverer.findTests();
     const validation = TestDiscoverer.validateTests(testDiscovery);
@@ -177,8 +226,149 @@ class GameEngine {
       testsFound: validation.count,
       testsList: testDiscovery,
       validation: validation,
-      ...this._getInitialState()
+      ...game._getInitialState()
     };
+  }
+}
+
+// ===== Game Engine =====
+class GameEngine {
+  /**
+   * Create a new game engine
+   * @param {Object} config - Configuration overrides
+   * @param {Object} fileSystem - File system interface (for DI)
+   * @param {Function} testDiscoverer - Test discoverer class (for DI)
+   */
+  constructor(
+    config = {},
+    fileSystem = fs,
+    testDiscoverer = TestDiscoverer
+  ) {
+    // Validate and merge config
+    const validation = ConfigValidator.validate({
+      test: CONFIG.test,
+      game: { ...CONFIG.game, ...config }
+    });
+
+    if (!validation.valid) {
+      throw new Error(`Invalid configuration: ${validation.errors.join(', ')}`);
+    }
+
+    if (validation.warnings.length > 0) {
+      console.warn('Configuration warnings:', validation.warnings);
+    }
+
+    this.config = validation.config.game;
+    this.testConfig = validation.config.test;
+    this.fs = fileSystem;
+    this.testDiscoverer = testDiscoverer;
+    this.level = 1;
+    this.score = 0;
+    
+    // Determine mode based on environment
+    this.mode = process.env.NODE_ENV === 'test' 
+      ? new TestMode() 
+      : new ProductionMode();
+  }
+
+  /**
+   * Start the game
+   * @param {GameMode} mode - Optional mode override
+   * @returns {Object} Game state
+   */
+  start(mode = null) {
+    try {
+      const activeMode = mode || this.mode;
+      return activeMode.start(this);
+    } catch (error) {
+      console.error('Game startup failed:', error.message);
+      return {
+        error: error.message,
+        status: 'failed',
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
+   * Advance to next level
+   * @returns {number} New level
+   * @throws {RangeError} If maximum level reached
+   */
+  nextLevel() {
+    try {
+      if (this.level >= this.config.maxLevel) {
+        throw new RangeError(
+          `Maximum level ${this.config.maxLevel} reached. Cannot advance further.`
+        );
+      }
+      
+      this.level++;
+      this.score += this.config.scoreIncrement || 100;
+      return this.level;
+    } catch (error) {
+      console.error('Failed to advance level:', error.message);
+      throw error; // Re-throw after logging
+    }
+  }
+
+  /**
+   * Reset game state
+   * @returns {Object} Reset state
+   */
+  reset() {
+    this.level = 1;
+    this.score = 0;
+    return this._getInitialState();
+  }
+
+  /**
+   * Get current game state
+   * @returns {Object} Current state
+   */
+  getState() {
+    return {
+      level: this.level,
+      score: this.score,
+      maxLevel: this.config.maxLevel,
+      title: this.config.title,
+      version: this.config.version,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Get initial game state
+   * @private
+   * @returns {Object} Initial state
+   */
+  _getInitialState() {
+    return {
+      level: this.level,
+      score: this.score,
+      status: 'active',
+      title: this.config.title,
+      version: this.config.version,
+      maxLevel: this.config.maxLevel,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Set game mode
+   * @param {string} mode - 'production' or 'test'
+   */
+  setMode(mode) {
+    switch (mode) {
+      case 'production':
+        this.mode = new ProductionMode();
+        break;
+      case 'test':
+        this.mode = new TestMode();
+        break;
+      default:
+        throw new Error(`Invalid mode: ${mode}. Must be 'production' or 'test'`);
+    }
   }
 }
 
@@ -186,12 +376,32 @@ class GameEngine {
 module.exports = {
   GameEngine,
   TestDiscoverer,
-  CONFIG
+  ConfigValidator,
+  GlobHelper,
+  CONFIG,
+  ProductionMode,
+  TestMode
 };
 
 // ===== CLI Entry Point =====
 if (require.main === module) {
-  const game = new GameEngine();
-  const state = game.start();
-  console.log('Game State:', JSON.stringify(state, null, 2));
+  try {
+    const game = new GameEngine();
+    const state = game.start();
+    console.log('Game State:', JSON.stringify(state, null, 2));
+    
+    // Demo: Advance levels
+    console.log('\nAdvancing levels...');
+    for (let i = 0; i < 3; i++) {
+      try {
+        const level = game.nextLevel();
+        console.log(`Advanced to level ${level}, Score: ${game.score}`);
+      } catch (error) {
+        console.error(error.message);
+      }
+    }
+  } catch (error) {
+    console.error('Fatal error:', error.message);
+    process.exit(1);
+  }
 }
