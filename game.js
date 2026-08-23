@@ -36,7 +36,7 @@ class Game {
         if (this.level % 5 === 0) {
             this.spawnBoss();
         }
-        this.map[this.player.y][this.player.x] = '@';
+        this.map[this.player.y][this.player.x] = '🧙';
     }
 
     initMap() {
@@ -44,9 +44,9 @@ class Game {
             this.map[y] = [];
             for (let x = 0; x < this.width; x++) {
                 if (x === 0 || x === this.width - 1 || y === 0 || y === this.height - 1) {
-                    this.map[y][x] = '#';
+                    this.map[y][x] = '🧱';
                 } else if (x >= 5 && x <= 24 && y >= 3 && y <= 11) {
-                    this.map[y][x] = '.';
+                    this.map[y][x] = '⬜';
                 } else {
                     this.map[y][x] = ' ';
                 }
@@ -61,26 +61,25 @@ class Game {
             attempts++;
             const x = Math.floor(Math.random() * (this.width - 10)) + 5;
             const y = Math.floor(Math.random() * (this.height - 6)) + 3;
-            if (this.map[y] && this.map[y][x] === '.' && !(x === this.player.x && y === this.player.y)) {
+            if (this.map[y] && this.map[y][x] === '⬜' && !(x === this.player.x && y === this.player.y)) {
                 this.stairs = { x, y };
-                this.map[y][x] = '>';
+                this.map[y][x] = '⬇️';
                 placed = true;
             }
         }
         if (!placed) {
-            // Fallback stairs placement
             this.stairs = { x: 10, y: 7 };
-            this.map[7][10] = '>';
+            this.map[7][10] = '⬇️';
         }
     }
 
     initMonsters() {
         const monsterTypes = [
-            { char: 'g', name: 'Goblin', hp: 10 + this.level * 2, maxHp: 10 + this.level * 2 },
-            { char: 's', name: 'Snake', hp: 8 + this.level * 2, maxHp: 8 + this.level * 2 },
-            { char: 'o', name: 'Orc', hp: 15 + this.level * 3, maxHp: 15 + this.level * 3 },
-            { char: 'd', name: 'Dragon', hp: 30 + this.level * 5, maxHp: 30 + this.level * 5 },
-            { char: 'r', name: 'Rat', hp: 5 + this.level, maxHp: 5 + this.level }
+            { char: '👺', name: 'Goblin', hp: 10 + this.level * 2, maxHp: 10 + this.level * 2 },
+            { char: '💀', name: 'Skeleton', hp: 8 + this.level * 2, maxHp: 8 + this.level * 2 },
+            { char: '👹', name: 'Orc', hp: 15 + this.level * 3, maxHp: 15 + this.level * 3 },
+            { char: '👿', name: 'Demon', hp: 30 + this.level * 5, maxHp: 30 + this.level * 5 },
+            { char: '🐀', name: 'Rat', hp: 5 + this.level, maxHp: 5 + this.level }
         ];
 
         const numMonsters = Math.min(5 + this.level * 2, 15);
@@ -92,7 +91,7 @@ class Game {
             const x = Math.floor(Math.random() * (this.width - 10)) + 5;
             const y = Math.floor(Math.random() * (this.height - 6)) + 3;
             
-            if (this.map[y] && this.map[y][x] === '.' && 
+            if (this.map[y] && this.map[y][x] === '⬜' && 
                 !(x === this.player.x && y === this.player.y) && 
                 !(x === this.stairs.x && y === this.stairs.y)) {
                 const type = monsterTypes[placed % monsterTypes.length];
@@ -118,7 +117,7 @@ class Game {
             const x = Math.floor(Math.random() * (this.width - 10)) + 5;
             const y = Math.floor(Math.random() * (this.height - 6)) + 3;
             
-            if (this.map[y] && this.map[y][x] === '.' && 
+            if (this.map[y] && this.map[y][x] === '⬜' && 
                 !(x === this.player.x && y === this.player.y) && 
                 !(x === this.stairs.x && y === this.stairs.y) &&
                 !this.monsters.some(m => m.x === x && m.y === y)) {
@@ -127,7 +126,7 @@ class Game {
                 const bossAttack = 10 + this.level * 3;
                 
                 this.boss = {
-                    char: 'B',
+                    char: '🐉',
                     name: `Boss (Level ${this.level})`,
                     x, y,
                     hp: bossHp,
@@ -135,7 +134,7 @@ class Game {
                     attack: bossAttack,
                     isBoss: true
                 };
-                this.map[y][x] = 'B';
+                this.map[y][x] = '🐉';
                 placed = true;
                 console.log(`⚠️ A BOSS APPEARS! ${this.boss.name} has ${bossHp} HP!`);
             }
@@ -144,9 +143,9 @@ class Game {
 
     initItems() {
         const itemTypes = [
-            { char: '❤', name: 'Health Potion', type: 'health', value: 20 },
-            { char: '⚔', name: 'Sword', type: 'weapon', value: 3 },
-            { char: '🛡', name: 'Shield', type: 'shield', value: 2 },
+            { char: '❤️', name: 'Health Potion', type: 'health', value: 20 },
+            { char: '⚔️', name: 'Sword', type: 'weapon', value: 3 },
+            { char: '🛡️', name: 'Shield', type: 'shield', value: 2 },
             { char: '📜', name: 'Scroll', type: 'scroll', value: 0 }
         ];
 
@@ -159,7 +158,7 @@ class Game {
             const x = Math.floor(Math.random() * (this.width - 10)) + 5;
             const y = Math.floor(Math.random() * (this.height - 6)) + 3;
             
-            if (this.map[y] && this.map[y][x] === '.' && 
+            if (this.map[y] && this.map[y][x] === '⬜' && 
                 !(x === this.player.x && y === this.player.y) && 
                 !(x === this.stairs.x && y === this.stairs.y) &&
                 !this.monsters.some(m => m.x === x && m.y === y) &&
@@ -214,11 +213,11 @@ class Game {
             return false;
         }
         
-        if (this.map[newY][newX] === '#') {
+        if (this.map[newY][newX] === '🧱') {
             return false;
         }
         
-        if (this.map[newY][newX] === '>') {
+        if (this.map[newY][newX] === '⬇️') {
             if (this.level % 5 === 0 && this.boss && this.boss.hp > 0) {
                 console.log('⚠️ You must defeat the boss before proceeding!');
                 return false;
@@ -239,10 +238,10 @@ class Game {
             return false;
         }
         
-        this.map[this.player.y][this.player.x] = '.';
+        this.map[this.player.y][this.player.x] = '⬜';
         this.player.x = newX;
         this.player.y = newY;
-        this.map[this.player.y][this.player.x] = '@';
+        this.map[this.player.y][this.player.x] = '🧙';
         return true;
     }
 
@@ -265,7 +264,7 @@ class Game {
         monster.hp -= damage;
         
         if (monster.hp <= 0) {
-            this.map[monster.y][monster.x] = '.';
+            this.map[monster.y][monster.x] = '⬜';
             const idx = this.monsters.indexOf(monster);
             if (idx > -1) {
                 this.monsters.splice(idx, 1);
@@ -284,7 +283,7 @@ class Game {
         
         if (this.boss.hp <= 0) {
             this.boss.hp = 0;
-            this.map[this.boss.y][this.boss.x] = '.';
+            this.map[this.boss.y][this.boss.x] = '⬜';
             this.bossDefeated = true;
             this.hasArtefact = true;
             console.log(`💀 YOU DEFEATED THE BOSS! ✨ Artefact acquired!`);
@@ -387,8 +386,8 @@ class Game {
                     return;
                 }
                 
-                if (this.map[newY] && (this.map[newY][newX] === '.' || this.map[newY][newX] === ' ')) {
-                    this.map[monster.y][monster.x] = '.';
+                if (this.map[newY] && (this.map[newY][newX] === '⬜' || this.map[newY][newX] === ' ')) {
+                    this.map[monster.y][monster.x] = '⬜';
                     monster.x = newX;
                     monster.y = newY;
                     this.map[monster.y][monster.x] = monster.char;
@@ -431,11 +430,11 @@ class Game {
                     return;
                 }
                 
-                if (this.map[newY] && (this.map[newY][newX] === '.' || this.map[newY][newX] === ' ')) {
-                    this.map[this.boss.y][this.boss.x] = '.';
+                if (this.map[newY] && (this.map[newY][newX] === '⬜' || this.map[newY][newX] === ' ')) {
+                    this.map[this.boss.y][this.boss.x] = '⬜';
                     this.boss.x = newX;
                     this.boss.y = newY;
-                    this.map[this.boss.y][this.boss.x] = 'B';
+                    this.map[this.boss.y][this.boss.x] = '🐉';
                 }
             }
         }
@@ -454,7 +453,7 @@ class Game {
         if (item.type === 'artefact') {
             this.hasArtefact = true;
             this.items.splice(itemIdx, 1);
-            this.map[this.player.y][this.player.x] = '@';
+            this.map[this.player.y][this.player.x] = '🧙';
             console.log('✨ You picked up the Artefact!');
             return;
         }
@@ -466,7 +465,7 @@ class Game {
         
         this.inventory.push(item);
         this.items.splice(itemIdx, 1);
-        this.map[this.player.y][this.player.x] = '@';
+        this.map[this.player.y][this.player.x] = '🧙';
         console.log(`📦 Picked up ${item.name}!`);
     }
 
@@ -526,7 +525,7 @@ class Game {
                     this.monsters.forEach(m => {
                         m.hp -= 10;
                         if (m.hp <= 0) {
-                            this.map[m.y][m.x] = '.';
+                            this.map[m.y][m.x] = '⬜';
                         }
                     });
                     this.monsters = this.monsters.filter(m => m.hp > 0);
@@ -534,7 +533,7 @@ class Game {
                         this.boss.hp -= 10;
                         if (this.boss.hp <= 0) {
                             this.boss.hp = 0;
-                            this.map[this.boss.y][this.boss.x] = '.';
+                            this.map[this.boss.y][this.boss.x] = '⬜';
                             this.bossDefeated = true;
                             this.hasArtefact = true;
                             console.log('💀 The boss was defeated by the scroll! ✨ Artefact acquired!');
