@@ -1,30 +1,24 @@
 steps:
-  # ========== 1. Vérifier la présence du projet ==========
   - type: command
-    command: if not exist projects\roguelike mkdir projects\roguelike
+    command: mkdir ..\agent_repo -Force
 
-  # ========== 2. Initialiser Git ==========
-  - type: git
-    action: init
-    cwd: projects/roguelike
-
-  # ========== 3. Ajouter tous les fichiers ==========
-  - type: git
-    action: add
-    cwd: projects/roguelike
-    path: .
-
-  # ========== 4. Commit du MVP ==========
-  - type: git
-    action: commit
-    cwd: projects/roguelike
-    message: "MVP roguelike - donjon ASCII, déplacement, monstres, escaliers, items"
-
-  # ========== 5. Vérifier le statut ==========
-  - type: git
-    action: status
-    cwd: projects/roguelike
-
-  # ========== 6. Afficher les derniers commits ==========
   - type: command
-    command: git -C projects/roguelike log --oneline -3
+    command: xcopy . ..\agent_repo /E /I /H /Y
+
+  - type: command
+    command: cd ..\agent_repo ; git init
+
+  - type: command
+    command: cd ..\agent_repo ; git add .
+
+  - type: command
+    command: cd ..\agent_repo ; git commit -m "Agent autonome - version stable avec tests, parser, UI, GitManager"
+
+  - type: command
+    command: cd ..\agent_repo ; git remote add origin https://github.com/ton-compte/agent-roguelike.git
+
+  - type: command
+    command: cd ..\agent_repo ; git branch -M main
+
+  - type: command
+    command: cd ..\agent_repo ; git push -u origin main
