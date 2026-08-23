@@ -1,8 +1,0 @@
-{
-  "name": "roguelike",
-  "version": "1.0.0",
-  "main": "game.js",
-  "scripts": {
-    "start": "node game.js"
-  }
-}
