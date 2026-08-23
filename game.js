@@ -1,22 +1,36 @@
 Create a file projects/roguelike/game.js
-[code]
+```javascript
 // ============================================================
-// 1. CONSTANTES
+// 1. CONFIGURATION
 // ============================================================
-const W = 30;
-const H = 15;
-const MAX_LEVEL = 10;
-const PLAYER_START_HP = 20;
-const PLAYER_START_ATK = 5;
-const PLAYER_START_DEF = 2;
-const MONSTER_ATTACK_RANGE = 3;
-const MAX_INVENTORY = 20;
-const ROOM_MIN_SIZE = 4;
-const ROOM_MAX_SIZE = 6;
+
+const CONFIG = {
+    world: { width: 30, height: 15 },
+    player: { startHp: 20, startAtk: 5, startDef: 2 },
+    monsters: { baseCount: 3, attackRange: 3 },
+    inventory: { maxSize: 20 },
+    dungeon: { roomMinSize: 4, roomMaxSize: 6, maxLevel: 10 }
+};
 
 // ============================================================
-// 2. ÉTAT DU JEU (centralisé)
+// 2. CONSTANTES
 // ============================================================
+
+const W = CONFIG.world.width;
+const H = CONFIG.world.height;
+const MAX_LEVEL = CONFIG.dungeon.maxLevel;
+const PLAYER_START_HP = CONFIG.player.startHp;
+const PLAYER_START_ATK = CONFIG.player.startAtk;
+const PLAYER_START_DEF = CONFIG.player.startDef;
+const MONSTER_ATTACK_RANGE = CONFIG.monsters.attackRange;
+const MAX_INVENTORY = CONFIG.inventory.maxSize;
+const ROOM_MIN_SIZE = CONFIG.dungeon.roomMinSize;
+const ROOM_MAX_SIZE = CONFIG.dungeon.roomMaxSize;
+
+// ============================================================
+// 3. ÉTAT DU JEU (centralisé)
+// ============================================================
+
 const game = {
     map: [],
     player: { x: 0, y: 0, hp: PLAYER_START_HP, maxHp: PLAYER_START_HP, attack: PLAYER_START_ATK, defense: PLAYER_START_DEF },
@@ -30,8 +44,9 @@ const game = {
 };
 
 // ============================================================
-// 3. UTILITAIRES
+// 4. UTILITAIRES
 // ============================================================
+
 function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
@@ -42,16 +57,46 @@ function randomInt(min, max) {
 
 function isTileFree(x, y, excludePlayer = true) {
     if (x < 0 || x >= W || y < 0 || y >= H) return false;
-    if (game.map[y][x] !== '.') return false;
+    if (game.map[y][x] !== '.' && game.map[y][x] !== '>') return false;
     if (excludePlayer && x === game.player.x && y === game.player.y) return false;
-    if (game.monsters.some(m => m.x === x && m.y === y)) return false;
+    if (game.monsters.some(m => m.x === x && m.y === y && m.hp > 0)) return false;
     if (game.items.some(i => i.x === x && i.y === y)) return false;
     return true;
 }
 
+function getDistance(x1, y1, x2, y2) {
+    return Math.abs(x1 - x2) + Math.abs(y1 - y2);
+}
+
 // ============================================================
-// 4. GÉNÉRATION DU DONJON
+// 5. RENDU (extrait des caractères)
 // ============================================================
+
+const CHAR_MAP = {
+    '#': '#',
+    '.': '.',
+    '@': '@',
+    '>': '>',
+    '<': '<',
+    'g': 'g',
+    's': 's',
+    'o': 'o',
+    'd': 'd',
+    'r': 'r',
+    '❤️': '❤️',
+    '⚔️': '⚔️',
+    '🛡️': '🛡️',
+    '📜': '📜'
+};
+
+function getChar(ch) {
+    return CHAR_MAP[ch] || ch;
+}
+
+// ============================================================
+// 6. GÉNÉRATION DU DONJON
+// ============================================================
+
 function generateDungeon(level = 1) {
     const map = [];
     for (let y = 0; y < H; y++) {
@@ -78,13 +123,26 @@ function generateDungeon(level = 1) {
         map[ry + 1][rx + 1] = '<';
     }
 
-    game.player.x = Math.min(rx + Math.floor(rw / 2), W - 1);
-    game.player.y = Math.min(ry + Math.floor(rh / 2), H - 1);
-    map[game.player.y][game.player.x] = '@';
+    // Items
+    game.items = [];
+    const numItems = 2 + Math.floor(level / 2);
+    for (let i = 0; i < numItems; i++) {
+        let placed = false;
+        for (let attempts = 0; attempts < 30 && !placed; attempts++) {
+            const x = rx + 1 + Math.floor(Math.random() * (rw - 2));
+            const y = ry + 1 + Math.floor(Math.random() * (rh - 2));
+            if (isTileFree(x, y, true)) {
+                const icon = ['❤️', '⚔️', '🛡️', '📜'][Math.floor(Math.random() * 4)];
+                map[y][x] = icon;
+                game.items.push({ x, y, type: icon });
+                placed = true;
+            }
+        }
+    }
 
-    // Monstres (sans overlap)
+    // Monsters
     game.monsters = [];
-    const numMonsters = 3 + Math.floor(level / 2);
+    const numMonsters = CONFIG.monsters.baseCount + Math.floor(level / 2);
     for (let i = 0; i < numMonsters; i++) {
         let placed = false;
         for (let attempts = 0; attempts < 50 && !placed; attempts++) {
@@ -103,30 +161,19 @@ function generateDungeon(level = 1) {
         }
     }
 
-    // Items
-    game.items = [];
-    const numItems = 2 + Math.floor(level / 2);
-    for (let i = 0; i < numItems; i++) {
-        let placed = false;
-        for (let attempts = 0; attempts < 30 && !placed; attempts++) {
-            const x = rx + 1 + Math.floor(Math.random() * (rw - 2));
-            const y = ry + 1 + Math.floor(Math.random() * (rh - 2));
-            if (isTileFree(x, y, true)) {
-                const icon = ['❤️', '⚔️', '🛡️', '📜'][Math.floor(Math.random() * 4)];
-                map[y][x] = icon;
-                game.items.push({ x, y, type: icon });
-                placed = true;
-            }
-        }
-    }
+    // Player
+    game.player.x = Math.min(rx + Math.floor(rw / 2), W - 1);
+    game.player.y = Math.min(ry + Math.floor(rh / 2), H - 1);
+    map[game.player.y][game.player.x] = '@';
 
     game.map = map;
     game.log.push('Niveau ' + level + ' genere !');
 }
 
 // ============================================================
-// 5. CRÉATION DE MONSTRES
+// 7. CRÉATION DE MONSTRES
 // ============================================================
+
 function createMonster(type, level) {
     const base = {
         g: { name: 'Gobelin', hp: 5, attack: 2, defense: 1, symbol: 'g', xp: 5 },
@@ -150,8 +197,9 @@ function createMonster(type, level) {
 }
 
 // ============================================================
-// 6. AFFICHAGE
+// 8. AFFICHAGE
 // ============================================================
+
 function render() {
     const { map, player, monsters, items, inventory, currentLevel } = game;
     console.clear();
@@ -166,20 +214,7 @@ function render() {
         let row = '';
         for (let x = 0; x < W; x++) {
             const ch = map[y][x];
-            if (ch === '@') row += '@';
-            else if (ch === '>') row += '>';
-            else if (ch === '<') row += '<';
-            else if (ch === '#') row += '#';
-            else if (ch === 'g') row += 'g';
-            else if (ch === 's') row += 's';
-            else if (ch === 'o') row += 'o';
-            else if (ch === 'd') row += 'd';
-            else if (ch === 'r') row += 'r';
-            else if (ch === '❤️') row += '❤️';
-            else if (ch === '⚔️') row += '⚔️';
-            else if (ch === '🛡️') row += '🛡️';
-            else if (ch === '📜') row += '📜';
-            else row += ch;
+            row += getChar(ch);
         }
         console.log(row);
     }
@@ -192,9 +227,10 @@ function render() {
 }
 
 // ============================================================
-// 7. GESTION DES ESCALIERS
+// 9. GESTION DES ESCALIERS
 // ============================================================
-function handleStairs(tile) {
+
+function handleStairs(tile, x, y) {
     if (tile === '>') {
         if (game.currentLevel < MAX_LEVEL) {
             game.currentLevel++;
@@ -225,8 +261,39 @@ function handleStairs(tile) {
 }
 
 // ============================================================
-// 8. GESTION DES ITEMS
+// 10. GESTION DES ITEMS (avec stratégie)
 // ============================================================
+
+const ITEM_EFFECTS = {
+    '❤️': (player) => {
+        const heal = 10 + Math.floor(Math.random() * 10);
+        player.hp = Math.min(player.maxHp, player.hp + heal);
+        return 'Potion utilisee (+' + heal + ' PV)';
+    },
+    '⚔️': (player) => {
+        player.attack += 2;
+        return 'Attaque augmentee de 2 !';
+    },
+    '🛡️': (player) => {
+        player.defense += 1;
+        return 'Defense augmentee de 1 !';
+    },
+    '📜': (player) => {
+        const random = Math.random();
+        if (random < 0.3) {
+            player.hp = Math.min(player.maxHp, player.hp + 15);
+            return 'Soin magique +15 PV !';
+        } else if (random < 0.6) {
+            const damage = 10 + Math.floor(Math.random() * 10);
+            game.monsters.forEach(m => { m.hp -= damage; if (m.hp <= 0) game.log.push(m.name + ' vaincu !'); });
+            game.monsters = game.monsters.filter(m => m.hp > 0);
+            return 'Explosion magique !';
+        } else {
+            return 'Rien ne se passe...';
+        }
+    }
+};
+
 function pickupItem() {
     const idx = game.items.findIndex(i => i.x === game.player.x && i.y === game.player.y);
     if (idx === -1) {
@@ -252,32 +319,27 @@ function useItem(itemType) {
         render();
         return;
     }
+    
     const item = game.inventory.splice(idx, 1)[0];
-    if (itemType === '❤️') {
-        const heal = 10 + Math.floor(Math.random() * 10);
-        game.player.hp = Math.min(game.player.maxHp, game.player.hp + heal);
-        game.log.push('Potion utilisee (+' + heal + ' PV)');
-    } else if (itemType === '⚔️') {
-        game.player.attack += 2;
-        game.log.push('Attaque augmentee de 2 !');
-    } else if (itemType === '🛡️') {
-        game.player.defense += 1;
-        game.log.push('Defense augmentee de 1 !');
-    } else if (itemType === '📜') {
-        const random = Math.random();
-        if (random < 0.3) {
-            game.player.hp = Math.min(game.player.maxHp, game.player.hp + 15);
-            game.log.push('Soin magique +15 PV !');
-        } else if (random < 0.6) {
-            const damage = 10 + Math.floor(Math.random() * 10);
-            game.monsters.forEach(m => { m.hp -= damage; if (m.hp <= 0) game.log.push(m.name + ' vaincu !'); });
-            game.monsters = game.monsters.filter(m => m.hp > 0);
-            game.log.push('Explosion magique !');
-        } else {
-            game.log.push('Rien ne se passe...');
-        }
+    const effect = ITEM_EFFECTS[itemType];
+    
+    if (effect) {
+        const message = effect(game.player);
+        game.log.push(message);
+    } else {
+        game.log.push('Objet inconnu');
     }
     render();
+}
+
+function useLastInventoryItem() {
+    if (game.inventory.length === 0) {
+        game.log.push('Inventaire vide.');
+        render();
+        return;
+    }
+    const item = game.inventory.pop();
+    useItem(item.type);
 }
 
 function showInventory() {
@@ -291,8 +353,9 @@ function showInventory() {
 }
 
 // ============================================================
-// 9. DÉPLACEMENT DU JOUEUR (refactorisé)
+// 11. DÉPLACEMENT DU JOUEUR
 // ============================================================
+
 function movePlayer(dx, dy) {
     if (game.gameOver) return false;
     const nx = clamp(game.player.x + dx, 0, W - 1);
@@ -301,8 +364,18 @@ function movePlayer(dx, dy) {
     if (game.map[ny][nx] === '#') return false;
 
     // Vérifier les escaliers
-    const stairsResult = handleStairs(game.map[ny][nx]);
-    if (stairsResult !== null) return stairsResult;
+    const currentTile = game.map[ny][nx];
+    if (currentTile === '>' || currentTile === '<') {
+        const stairsResult = handleStairs(currentTile, nx, ny);
+        if (stairsResult !== null) {
+            // Mettre à jour la map après déplacement
+            game.map[game.player.y][game.player.x] = '.';
+            game.map[ny][nx] = '@';
+            game.player.x = nx;
+            game.player.y = ny;
+            return stairsResult;
+        }
+    }
 
     // Vérifier les items
     const itemIdx = game.items.findIndex(i => i.x === nx && i.y === ny);
@@ -311,6 +384,10 @@ function movePlayer(dx, dy) {
             const item = game.items.splice(itemIdx, 1)[0];
             game.inventory.push(item);
             game.log.push('Vous ramassez ' + item.type);
+            game.map[game.player.y][game.player.x] = '.';
+            game.player.x = nx;
+            game.player.y = ny;
+            game.map[ny][nx] = '@';
             render();
             return true;
         } else {
@@ -321,9 +398,11 @@ function movePlayer(dx, dy) {
     }
 
     // Vérifier les monstres
-    const monster = game.monsters.find(m => m.x === nx && m.y === ny);
+    const monster = game.monsters.find(m => m.x === nx && m.y === ny && m.hp > 0);
     if (monster) {
         attackMonster(monster);
+        game.turn++;
+        // Le combat peut tuer le joueur, ne pas déplacer
         return false;
     }
 
@@ -339,9 +418,17 @@ function movePlayer(dx, dy) {
 }
 
 // ============================================================
-// 10. COMBAT
+// 12. COMBAT
 // ============================================================
+
 function attackMonster(monster) {
+    if (game.gameOver) return;
+    if (!monster || monster.hp <= 0) {
+        game.log.push('Ce monstre est deja mort.');
+        render();
+        return;
+    }
+
     const damage = game.player.attack + Math.floor(Math.random() * 4);
     const defense = monster.defense || 0;
     const finalDamage = Math.max(1, damage - defense);
@@ -363,89 +450,119 @@ function attackMonster(monster) {
 }
 
 // ============================================================
-// 11. IA DES MONSTRES
+// 13. IA DES MONSTRES (refactorisée)
 // ============================================================
+
+function pursuePlayer(monster) {
+    const dx = game.player.x - monster.x;
+    const dy = game.player.y - monster.y;
+    const dist = getDistance(monster.x, monster.y, game.player.x, game.player.y);
+    
+    let moveX = 0, moveY = 0;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+        moveX = Math.sign(dx);
+    } else {
+        moveY = Math.sign(dy);
+    }
+    
+    if (Math.random() < 0.2 && dist > 2) {
+        const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+        const dir = dirs[Math.floor(Math.random() * dirs.length)];
+        moveX = dir[0];
+        moveY = dir[1];
+    }
+    
+    return { dx: moveX, dy: moveY };
+}
+
+function wanderRandomly(monster) {
+    const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+    const dir = dirs[Math.floor(Math.random() * dirs.length)];
+    return { dx: dir[0], dy: dir[1] };
+}
+
+function updateMonster(monster) {
+    if (game.gameOver) return false;
+    
+    const distance = getDistance(monster.x, monster.y, game.player.x, game.player.y);
+    let move;
+    
+    if (distance <= MONSTER_ATTACK_RANGE) {
+        move = pursuePlayer(monster);
+    } else {
+        move = wanderRandomly(monster);
+    }
+    
+    const nx = monster.x + move.dx;
+    const ny = monster.y + move.dy;
+    
+    // Combat check
+    if (nx === game.player.x && ny === game.player.y) {
+        const damage = monster.attack + Math.floor(Math.random() * 3);
+        const defense = game.player.defense || 0;
+        const finalDamage = Math.max(1, damage - defense);
+        game.player.hp -= finalDamage;
+        game.log.push(monster.name + ' vous attaque (' + finalDamage + ')');
+        
+        if (game.player.hp <= 0) {
+            game.player.hp = 0;
+            game.gameOver = true;
+            game.log.push('VOUS ETES MORT !');
+            render();
+        }
+        return true;
+    }
+    
+    // Movement check
+    if (isTileFree(nx, ny, true)) {
+        game.map[monster.y][monster.x] = '.';
+        monster.x = nx;
+        monster.y = ny;
+        game.map[ny][nx] = monster.symbol;
+        return true;
+    }
+    
+    return false;
+}
+
 function moveMonsters() {
-    game.monsters.forEach(m => {
-        const dx = game.player.x - m.x;
-        const dy = game.player.y - m.y;
-        const dist = Math.abs(dx) + Math.abs(dy);
-
-        if (dist <= MONSTER_ATTACK_RANGE) {
-            let moveX = 0, moveY = 0;
-            if (Math.abs(dx) >= Math.abs(dy)) {
-                moveX = Math.sign(dx);
-            } else {
-                moveY = Math.sign(dy);
-            }
-            if (Math.random() < 0.2 && dist > 2) {
-                const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
-                const dir = dirs[Math.floor(Math.random() * dirs.length)];
-                moveX = dir[0];
-                moveY = dir[1];
-            }
-            const nx = m.x + moveX;
-            const ny = m.y + moveY;
-
-            if (nx === game.player.x && ny === game.player.y) {
-                const damage = m.attack + Math.floor(Math.random() * 3);
-                const defense = game.player.defense || 0;
-                const finalDamage = Math.max(1, damage - defense);
-                game.player.hp -= finalDamage;
-                game.log.push(m.name + ' vous attaque (' + finalDamage + ')');
-                if (game.player.hp <= 0) {
-                    game.player.hp = 0;
-                    game.gameOver = true;
-                    game.log.push('VOUS ETES MORT !');
-                    render();
-                }
-                return;
-            }
-            if (isTileFree(nx, ny, true)) {
-                game.map[m.y][m.x] = '.';
-                m.x = nx;
-                m.y = ny;
-                game.map[ny][nx] = m.symbol;
-            }
-        } else {
-            const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
-            const dir = dirs[Math.floor(Math.random() * dirs.length)];
-            const nx = m.x + dir[0];
-            const ny = m.y + dir[1];
-            if (isTileFree(nx, ny, true)) {
-                game.map[m.y][m.x] = '.';
-                m.x = nx;
-                m.y = ny;
-                game.map[ny][nx] = m.symbol;
-            }
+    if (game.gameOver) return;
+    
+    game.monsters.forEach(monster => {
+        if (monster.hp > 0) {
+            updateMonster(monster);
         }
     });
     render();
 }
 
 // ============================================================
-// 12. GESTION DES TOUCHES
+// 14. GESTION DES TOUCHES
 // ============================================================
+
+function resetGame() {
+    game.monsters = [];
+    game.items = [];
+    game.inventory = [];
+    game.log = [];
+    game.player.hp = PLAYER_START_HP;
+    game.player.maxHp = PLAYER_START_HP;
+    game.player.attack = PLAYER_START_ATK;
+    game.player.defense = PLAYER_START_DEF;
+    game.currentLevel = 1;
+    game.gameOver = false;
+    generateDungeon(game.currentLevel);
+    render();
+    game.log.push('Nouvelle partie !');
+}
+
 process.stdin.on('keypress', (str, key) => {
     if (key.ctrl && key.name === 'c') { process.exit(); }
     if (key.name === 'q') { process.exit(); }
 
     if (game.gameOver) {
         if (key.name === 'r') {
-            // Reset complet
-            game.monsters = [];
-            game.items = [];
-            game.inventory = [];
-            game.log = [];
-            game.player.hp = PLAYER_START_HP;
-            game.player.maxHp = PLAYER_START_HP;
-            game.player.attack = PLAYER_START_ATK;
-            game.player.defense = PLAYER_START_DEF;
-            game.currentLevel = 1;
-            game.gameOver = false;
-            generateDungeon(game.currentLevel);
-            render();
-            game.log.push('Nouvelle partie !');
+            resetGame();
         }
         return;
     }
@@ -454,7 +571,8 @@ process.stdin.on('keypress', (str, key) => {
         let closest = null;
         let closestDist = Infinity;
         game.monsters.forEach(m => {
-            const dist = Math.abs(m.x - game.player.x) + Math.abs(m.y - game.player.y);
+            if (m.hp <= 0) return;
+            const dist = getDistance(m.x, m.y, game.player.x, game.player.y);
             if (dist < closestDist && dist <= 2) {
                 closestDist = dist;
                 closest = m;
@@ -474,13 +592,7 @@ process.stdin.on('keypress', (str, key) => {
         return;
     }
     if (key.name === 'u') {
-        if (game.inventory.length === 0) {
-            game.log.push('Inventaire vide.');
-            render();
-            return;
-        }
-        const item = game.inventory.pop();
-        useItem(item.type);
+        useLastInventoryItem();
         return;
     }
     if (key.name === 'i') {
@@ -505,13 +617,13 @@ process.stdin.on('keypress', (str, key) => {
 });
 
 // ============================================================
-// 13. INITIALISATION
+// 15. INITIALISATION
 // ============================================================
+
 game.player.hp = PLAYER_START_HP;
 game.player.maxHp = PLAYER_START_HP;
 game.player.attack = PLAYER_START_ATK;
 game.player.defense = PLAYER_START_DEF;
 generateDungeon(1);
 render();
-game.log.push('Explore le donjon et elimine les monstres !');
-[/code]
+game.log.push('Explore le donjon et elimine les monstres !');
