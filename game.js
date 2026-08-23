@@ -1,877 +1,486 @@
-const utils = {
-    randomInt(min, max) {
-        return Math.floor(Math.random() * (max - min + 1)) + min;
-    },
-
-    clamp(value, min, max) {
-        return Math.min(Math.max(value, min), max);
-    },
-
-    distance(x1, y1, x2, y2) {
-        return Math.abs(x1 - x2) + Math.abs(y1 - y2);
-    },
-
-    sign(value) {
-        return value > 0 ? 1 : value < 0 ? -1 : 0;
-    },
-
-    randomChoice(array) {
-        return array[Math.floor(Math.random() * array.length)];
-    }
-};
-
-module.exports = utils;
-const utils = require('./utils');
-
-class Dungeon {
-    constructor(width, height) {
-        this.width = width;
-        this.height = height;
-        this.map = [];
-        this.stairs = { x: 0, y: 0 };
-        this.level = 1;
-    }
-
-    generate(level, playerX, playerY) {
-        this.level = level;
-        this.map = [];
-        this.initMap();
-        this.placeStairs(playerX, playerY);
-        return this.map;
-    }
-
-    initMap() {
-        for (let y = 0; y < this.height; y++) {
-            this.map[y] = [];
-            for (let x = 0; x < this.width; x++) {
-                if (x === 0 || x === this.width - 1 || y === 0 || y === this.height - 1) {
-                    this.map[y][x] = '█';
-                } else if (x >= 5 && x <= 24 && y >= 3 && y <= 11) {
-                    this.map[y][x] = '·';
-                } else {
-                    this.map[y][x] = ' ';
-                }
-            }
-        }
-    }
-
-    placeStairs(playerX, playerY) {
-        let placed = false;
-        let attempts = 0;
-        while (!placed && attempts < 1000) {
-            attempts++;
-            const x = utils.randomInt(5, this.width - 6);
-            const y = utils.randomInt(3, this.height - 4);
-            if (this.map[y] && this.map[y][x] === '·' && !(x === playerX && y === playerY)) {
-                this.stairs = { x, y };
-                this.map[y][x] = '⇩';
-                placed = true;
-            }
-        }
-        if (!placed) {
-            this.stairs = { x: 10, y: 7 };
-            this.map[7][10] = '⇩';
-        }
-    }
-
-    getStairs() {
-        return this.stairs;
-    }
-
-    isWalkable(x, y) {
-        if (x <= 0 || x >= this.width - 1 || y <= 0 || y >= this.height - 1) return false;
-        return this.map[y][x] === '·' || this.map[y][x] === ' ' || this.map[y][x] === '⇩';
-    }
-
-    isWall(x, y) {
-        return this.map[y] && this.map[y][x] === '█';
-    }
-
-    isStairs(x, y) {
-        return this.map[y] && this.map[y][x] === '⇩';
-    }
-
-    updateTile(x, y, char) {
-        if (this.map[y] && x >= 0 && x < this.width) {
-            this.map[y][x] = char;
-        }
-    }
-
-    getMap() {
-        return this.map;
-    }
-}
-
-module.exports = Dungeon;
-const utils = require('./utils');
-
-class Player {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.hp = 100;
-        this.maxHp = 100;
-        this.attack = 5;
-        this.defense = 0;
-        this.char = '☺';
-    }
-
-    move(dx, dy, dungeon, monsters, boss, combat, game) {
-        const newX = this.x + dx;
-        const newY = this.y + dy;
-
-        if (!dungeon.isWalkable(newX, newY)) {
-            return false;
-        }
-
-        if (dungeon.isStairs(newX, newY)) {
-            if (game && game.shouldBlockStairs()) {
-                console.log('⚠️ You must defeat the boss before proceeding!');
-                return false;
-            }
-            if (game) game.goToNextLevel();
-            return true;
-        }
-
-        // Check boss collision
-        if (boss && boss.hp > 0 && newX === boss.x && newY === boss.y) {
-            combat.attackBoss(this, boss, dungeon);
-            return false;
-        }
-
-        // Check monster collision
-        const monster = monsters.find(m => m.x === newX && m.y === newY && m.hp > 0);
-        if (monster) {
-            combat.attackMonster(this, monster, dungeon, monsters);
-            return false;
-        }
-
-        dungeon.updateTile(this.y, this.x, '·');
-        this.x = newX;
-        this.y = newY;
-        dungeon.updateTile(this.y, this.x, this.char);
-        return true;
-    }
-
-    takeDamage(damage) {
-        const actualDamage = Math.max(1, damage - this.defense);
-        this.hp -= actualDamage;
-        return actualDamage;
-    }
-
-    heal(amount) {
-        this.hp = Math.min(this.hp + amount, this.maxHp);
-    }
-
-    getStats() {
-        return {
-            x: this.x,
-            y: this.y,
-            hp: this.hp,
-            maxHp: this.maxHp,
-            attack: this.attack,
-            defense: this.defense
-        };
-    }
-
-    setPosition(x, y) {
-        this.x = x;
-        this.y = y;
-    }
-}
-
-module.exports = Player;
-const utils = require('./utils');
-
-class Monster {
-    constructor(char, name, hp, maxHp, x, y, isBoss = false, attack = 0) {
-        this.char = char;
-        this.name = name;
-        this.hp = hp;
-        this.maxHp = maxHp;
-        this.x = x;
-        this.y = y;
-        this.isBoss = isBoss;
-        this.attack = attack || (isBoss ? 10 : 5);
-        this.initialChar = char;
-    }
-
-    takeDamage(damage) {
-        this.hp -= damage;
-        return this.hp <= 0;
-    }
-
-    isAlive() {
-        return this.hp > 0;
-    }
-
-    getAttackDamage() {
-        return this.attack + (this.isBoss ? Math.floor(Math.random() * 5) : Math.floor(Math.random() * 3));
-    }
-
-    moveToward(player, dungeon, monsters) {
-        const dx = player.x - this.x;
-        const dy = player.y - this.y;
-        const dist = utils.distance(this.x, this.y, player.x, player.y);
-
-        const range = this.isBoss ? 6 : 5;
-        if (dist > range) return false;
-
-        let moveX = 0, moveY = 0;
-        if (Math.abs(dx) >= Math.abs(dy)) {
-            moveX = utils.sign(dx);
-        } else {
-            moveY = utils.sign(dy);
-        }
-
-        const newX = this.x + moveX;
-        const newY = this.y + moveY;
-
-        if (newX === player.x && newY === player.y) {
-            return true; // Hit player
-        }
-
-        if (dungeon.isWalkable(newX, newY)) {
-            const monsterHere = monsters.find(m => m !== this && m.x === newX && m.y === newY && m.isAlive());
-            const bossHere = monsters.find(m => m !== this && m.isBoss && m.x === newX && m.y === newY && m.isAlive());
-            if (!monsterHere && !bossHere) {
-                dungeon.updateTile(this.y, this.x, '·');
-                this.x = newX;
-                this.y = newY;
-                dungeon.updateTile(this.y, this.x, this.char);
-            }
-        }
-        return false;
-    }
-}
-
-function createMonster(level, typeIndex, x, y) {
-    const types = [
-        { char: '⚔', name: 'Goblin', baseHp: 10, hpScale: 2 },
-        { char: '☠', name: 'Skeleton', baseHp: 8, hpScale: 2 },
-        { char: '⚒', name: 'Orc', baseHp: 15, hpScale: 3 },
-        { char: '☯', name: 'Demon', baseHp: 30, hpScale: 5 },
-        { char: '☿', name: 'Rat', baseHp: 5, hpScale: 1 }
-    ];
-
-    const type = types[typeIndex % types.length];
-    const hp = type.baseHp + level * type.hpScale + utils.randomInt(0, 5);
-    return new Monster(type.char, type.name, hp, hp, x, y, false);
-}
-
-function createBoss(level, x, y) {
-    const hp = 50 + level * 10;
-    const attack = 10 + level * 3;
-    const boss = new Monster('☥', `Boss (Level ${level})`, hp, hp, x, y, true, attack);
-    boss.char = '☥';
-    return boss;
-}
-
-module.exports = { Monster, createMonster, createBoss };
-const utils = require('./utils');
-
-class Combat {
-    constructor() {}
-
-    attackMonster(attacker, defender, dungeon, monsters) {
-        const damage = utils.randomInt(1, 10) + attacker.attack;
-        const killed = defender.takeDamage(damage);
-        
-        if (killed) {
-            dungeon.updateTile(defender.y, defender.x, '·');
-            const idx = monsters.indexOf(defender);
-            if (idx > -1) {
-                monsters.splice(idx, 1);
-            }
-            console.log(`💀 You killed the ${defender.name}!`);
-        } else {
-            console.log(`⚔️ You hit the ${defender.name} for ${damage} damage!`);
-        }
-        return killed;
-    }
-
-    attackBoss(attacker, boss, dungeon) {
-        const damage = utils.randomInt(1, 12) + attacker.attack;
-        const killed = boss.takeDamage(damage);
-
-        if (killed) {
-            dungeon.updateTile(boss.y, boss.x, '·');
-            console.log(`💀 YOU DEFEATED THE BOSS! ✦ Artefact acquired!`);
-            return true;
-        } else {
-            console.log(`⚔️ You hit the ${boss.name} for ${damage} damage! (${boss.hp}/${boss.maxHp} HP)`);
-            // Boss counterattacks
-            const bossDamage = boss.getAttackDamage();
-            const actualDamage = attacker.takeDamage(bossDamage);
-            console.log(`💢 ${boss.name} counterattacks for ${actualDamage} damage!`);
-            if (attacker.hp <= 0) {
-                console.log('💀 YOU DIED! Game Over!');
-                process.exit();
-            }
-        }
-        return false;
-    }
-
-    monsterAttackPlayer(monster, player) {
-        const damage = monster.getAttackDamage();
-        const actualDamage = player.takeDamage(damage);
-        console.log(`💢 ${monster.name} hit you for ${actualDamage} damage!`);
-        if (player.hp <= 0) {
-            console.log('💀 YOU DIED! Game Over!');
-            process.exit();
-        }
-        return actualDamage;
-    }
-
-    findNearestEnemy(player, monsters, boss) {
-        let nearest = null;
-        let minDist = Infinity;
-
-        monsters.filter(m => m.isAlive()).forEach(m => {
-            const dist = utils.distance(player.x, player.y, m.x, m.y);
-            if (dist < minDist) {
-                minDist = dist;
-                nearest = m;
-            }
-        });
-
-        if (boss && boss.isAlive()) {
-            const dist = utils.distance(player.x, player.y, boss.x, boss.y);
-            if (dist < minDist) {
-                minDist = dist;
-                nearest = boss;
-            }
-        }
-
-        return { enemy: nearest, distance: minDist };
-    }
-}
-
-module.exports = Combat;
-const utils = require('./utils');
-
-class Item {
-    constructor(char, name, type, value, x, y) {
-        this.char = char;
-        this.name = name;
-        this.type = type;
-        this.value = value;
-        this.x = x;
-        this.y = y;
-    }
-}
-
-class Inventory {
-    constructor() {
-        this.items = [];
-        this.maxSize = 10;
-        this.hasArtefact = false;
-    }
-
-    addItem(item) {
-        if (this.items.length >= this.maxSize) {
-            return false;
-        }
-        this.items.push(item);
-        return true;
-    }
-
-    removeItem(index) {
-        if (index >= 0 && index < this.items.length) {
-            return this.items.splice(index, 1)[0];
-        }
-        return null;
-    }
-
-    getItems() {
-        return this.items;
-    }
-
-    size() {
-        return this.items.length;
-    }
-
-    isFull() {
-        return this.items.length >= this.maxSize;
-    }
-
-    useItem(index, player, monsters, boss, dungeon) {
-        if (index < 0 || index >= this.items.length) return null;
-        const item = this.items[index];
-        const result = this.applyItem(item, player, monsters, boss, dungeon);
-        if (result !== null) {
-            this.items.splice(index, 1);
-        }
-        return result;
-    }
-
-    applyItem(item, player, monsters, boss, dungeon) {
-        switch (item.type) {
-            case 'health':
-                const heal = item.value + utils.randomInt(0, 10);
-                player.heal(heal);
-                console.log(`♥ Used ${item.name}! Healed for ${heal} HP!`);
-                return { type: 'health', amount: heal };
-
-            case 'weapon':
-                player.attack += item.value;
-                console.log(`⚔ Used ${item.name}! Attack increased by ${item.value}!`);
-                return { type: 'weapon', value: item.value };
-
-            case 'shield':
-                player.defense += item.value;
-                console.log(`♡ Used ${item.name}! Defense increased by ${item.value}!`);
-                return { type: 'shield', value: item.value };
-
-            case 'scroll':
-                const effects = ['All monsters take 10 damage!', 'You feel stronger!', 'You find some gold!'];
-                const effect = utils.randomChoice(effects);
-                if (effect.includes('damage')) {
-                    monsters.forEach(m => {
-                        m.takeDamage(10);
-                        if (!m.isAlive()) {
-                            dungeon.updateTile(m.y, m.x, '·');
-                        }
-                    });
-                    const aliveMonsters = monsters.filter(m => m.isAlive());
-                    monsters.length = 0;
-                    monsters.push(...aliveMonsters);
-                    if (boss && boss.isAlive()) {
-                        const killed = boss.takeDamage(10);
-                        if (!boss.isAlive()) {
-                            dungeon.updateTile(boss.y, boss.x, '·');
-                            this.hasArtefact = true;
-                            console.log('💀 The boss was defeated by the scroll! ✦ Artefact acquired!');
-                        }
-                    }
-                } else if (effect.includes('stronger')) {
-                    player.attack += 2;
-                    player.defense += 1;
-                }
-                console.log(`☰ Used ${item.name}! ${effect}`);
-                return { type: 'scroll', effect };
-
-            case 'artefact':
-                console.log('✦ The Artefact radiates power! All stats increased!');
-                player.attack += 5;
-                player.defense += 3;
-                player.maxHp += 20;
-                player.heal(20);
-                return { type: 'artefact' };
-
-            default:
-                return null;
-        }
-    }
-
-    getArtefact() {
-        this.hasArtefact = true;
-    }
-}
-
-function createItem(level, x, y) {
-    const types = [
-        { char: '♥', name: 'Health Potion', type: 'health', value: 20 },
-        { char: '⚔', name: 'Sword', type: 'weapon', value: 3 },
-        { char: '♡', name: 'Shield', type: 'shield', value: 2 },
-        { char: '☰', name: 'Scroll', type: 'scroll', value: 0 }
-    ];
-
-    const type = utils.randomChoice(types);
-    return new Item(type.char, type.name, type.type, type.value, x, y);
-}
-
-function createArtefact(x, y) {
-    return new Item('✦', 'Artefact', 'artefact', 0, x, y);
-}
-
-module.exports = { Item, Inventory, createItem, createArtefact };
-class Renderer {
-    constructor() {}
-
-    render(dungeon, player, monsters, boss, inventory, level, maxLevel, hasArtefact, items) {
-        console.clear();
-        let output = `Level: ${level}/${maxLevel}  |  `;
-        output += `HP: ${player.hp}/${player.maxHp}  |  `;
-        output += `ATK: ${player.attack}  |  `;
-        output += `DEF: ${player.defense}`;
-        if (hasArtefact) output += '  |  ✦ Artefact';
-        output += '\n';
-
-        const map = dungeon.getMap();
-        for (let y = 0; y < map.length; y++) {
-            for (let x = 0; x < map[y].length; x++) {
-                output += map[y][x];
-            }
-            output += '\n';
-        }
-
-        output += '\n';
-        const aliveMonsters = monsters.filter(m => m.isAlive());
-        output += `Monsters: ${aliveMonsters.length}`;
-        if (boss && boss.isAlive()) {
-            output += `  |  Boss: ${boss.name} (HP: ${boss.hp}/${boss.maxHp})`;
-        }
-        output += `  |  Items: ${items.length}`;
-        output += `  |  Inventory: ${inventory.size()}`;
-        output += '\n';
-        output += 'Controls: Arrows/WASD move, Space attack, E pick up, U use, I inventory, > stairs';
-
-        console.log(output);
-    }
-}
-
-module.exports = Renderer;
-const readline = require('readline');
-const Dungeon = require('./src/dungeon');
-const Player = require('./src/player');
-const { createMonster, createBoss } = require('./src/monster');
-const Combat = require('./src/combat');
-const { Inventory, createItem, createArtefact } = require('./src/items');
-const Renderer = require('./src/render');
-const utils = require('./src/utils');
-
-class Game {
-    constructor() {
-        this.width = 30;
-        this.height = 15;
-        this.level = 1;
-        this.maxLevel = 10;
-        this.dungeon = new Dungeon(this.width, this.height);
-        this.player = new Player(5, 5);
-        this.monsters = [];
-        this.boss = null;
-        this.items = [];
-        this.inventory = new Inventory();
-        this.combat = new Combat();
-        this.renderer = new Renderer();
-        this.hasArtefact = false;
-        this.initLevel();
-    }
-
-    initLevel() {
-        this.monsters = [];
-        this.items = [];
-        this.boss = null;
-        this.dungeon.generate(this.level, this.player.x, this.player.y);
-        this.player.setPosition(5, 5);
-        this.spawnMonsters();
-        this.spawnItems();
-        if (this.level % 5 === 0) {
-            this.spawnBoss();
-        }
-        this.dungeon.updateTile(this.player.y, this.player.x, this.player.char);
-    }
-
-    spawnMonsters() {
-        const numMonsters = Math.min(5 + this.level * 2, 15);
-        let attempts = 0;
-        let placed = 0;
-
-        while (placed < numMonsters && attempts < 1000) {
-            attempts++;
-            const x = utils.randomInt(5, this.width - 6);
-            const y = utils.randomInt(3, this.height - 4);
-            const stairs = this.dungeon.getStairs();
-
-            if (this.dungeon.getMap()[y][x] === '·' && 
-                !(x === this.player.x && y === this.player.y) && 
-                !(x === stairs.x && y === stairs.y)) {
-                const monster = createMonster(this.level, placed, x, y);
-                this.monsters.push(monster);
-                this.dungeon.updateTile(y, x, monster.char);
-                placed++;
-            }
-        }
-    }
-
-    spawnBoss() {
-        let placed = false;
-        let attempts = 0;
-        const stairs = this.dungeon.getStairs();
-
-        while (!placed && attempts < 500) {
-            attempts++;
-            const x = utils.randomInt(5, this.width - 6);
-            const y = utils.randomInt(3, this.height - 4);
-
-            if (this.dungeon.getMap()[y][x] === '·' && 
-                !(x === this.player.x && y === this.player.y) && 
-                !(x === stairs.x && y === stairs.y) &&
-                !this.monsters.some(m => m.x === x && m.y === y)) {
-
-                this.boss = createBoss(this.level, x, y);
-                this.dungeon.updateTile(y, x, this.boss.char);
-                placed = true;
-                console.log(`⚠️ A BOSS APPEARS! ${this.boss.name} has ${this.boss.hp} HP!`);
-            }
-        }
-    }
-
-    spawnItems() {
-        const numItems = Math.min(3 + this.level, 8);
-        let attempts = 0;
-        let placed = 0;
-        const stairs = this.dungeon.getStairs();
-
-        while (placed < numItems && attempts < 500) {
-            attempts++;
-            const x = utils.randomInt(5, this.width - 6);
-            const y = utils.randomInt(3, this.height - 4);
-
-            if (this.dungeon.getMap()[y][x] === '·' && 
-                !(x === this.player.x && y === this.player.y) && 
-                !(x === stairs.x && y === stairs.y) &&
-                !this.monsters.some(m => m.x === x && m.y === y) &&
-                !(this.boss && this.boss.x === x && this.boss.y === y)) {
-                const item = createItem(this.level, x, y);
-                this.items.push(item);
-                this.dungeon.updateTile(y, x, item.char);
-                placed++;
-            }
-        }
-    }
-
-    shouldBlockStairs() {
-        return this.level % 5 === 0 && this.boss && this.boss.isAlive();
-    }
-
-    goToNextLevel() {
-        if (this.level >= this.maxLevel) {
-            console.log('🎉 You win! You escaped the dungeon! 🎉');
-            process.exit();
-        }
-
-        this.level++;
-        this.player.setPosition(5, 5);
-        this.player.heal(20);
-        this.initLevel();
-        this.render();
-    }
-
-    attackNearest() {
-        const result = this.combat.findNearestEnemy(this.player, this.monsters, this.boss);
-        if (result.enemy) {
-            if (result.distance <= 3) {
-                if (result.enemy.isBoss) {
-                    const killed = this.combat.attackBoss(this.player, this.boss, this.dungeon);
-                    if (killed) {
-                        this.inventory.getArtefact();
-                        this.hasArtefact = true;
-                        // Drop artefact
-                        const artefact = createArtefact(this.boss.x, this.boss.y);
-                        this.items.push(artefact);
-                        this.dungeon.updateTile(this.boss.y, this.boss.x, '✦');
-                        this.boss = null;
-                    }
-                } else {
-                    this.combat.attackMonster(this.player, result.enemy, this.dungeon, this.monsters);
-                }
-            } else {
-                console.log('No enemies nearby!');
-            }
-        } else {
-            console.log('No enemies alive!');
-        }
-    }
-
-    moveMonsters() {
-        this.monsters.forEach(monster => {
-            if (monster.isAlive()) {
-                const hitPlayer = monster.moveToward(this.player, this.dungeon, this.monsters);
-                if (hitPlayer) {
-                    this.combat.monsterAttackPlayer(monster, this.player);
-                }
-            }
-        });
-
-        if (this.boss && this.boss.isAlive()) {
-            const hitPlayer = this.boss.moveToward(this.player, this.dungeon, this.monsters);
-            if (hitPlayer) {
-                this.combat.monsterAttackPlayer(this.boss, this.player);
-            }
-        }
-    }
-
-    pickUp() {
-        const itemIdx = this.items.findIndex(i => i.x === this.player.x && i.y === this.player.y);
-        if (itemIdx === -1) {
-            console.log('Nothing to pick up here.');
-            return;
-        }
-
-        const item = this.items[itemIdx];
-
-        if (item.type === 'artefact') {
-            this.inventory.getArtefact();
-            this.hasArtefact = true;
-            this.items.splice(itemIdx, 1);
-            this.dungeon.updateTile(this.player.y, this.player.x, this.player.char);
-            console.log('✦ You picked up the Artefact!');
-            return;
-        }
-
-        if (this.inventory.isFull()) {
-            console.log('Inventory full!');
-            return;
-        }
-
-        this.inventory.addItem(item);
-        this.items.splice(itemIdx, 1);
-        this.dungeon.updateTile(this.player.y, this.player.x, this.player.char);
-        console.log(`📦 Picked up ${item.name}!`);
-    }
-
-    useItem() {
-        if (this.inventory.size() === 0) {
-            console.log('Inventory is empty!');
-            return;
-        }
-
-        console.log('Inventory:');
-        this.inventory.getItems().forEach((item, idx) => {
-            console.log(`${idx + 1}: ${item.name}`);
-        });
-        console.log('Press number (1-9) to use, or any other key to cancel');
-
-        const handler = (str, key) => {
-            if (key.ctrl && key.name === 'c') {
-                process.exit();
-            }
-
-            const num = parseInt(str);
-            if (num >= 1 && num <= this.inventory.size()) {
-                const result = this.inventory.useItem(num - 1, this.player, this.monsters, this.boss, this.dungeon);
-                if (result && result.type === 'artefact') {
-                    this.hasArtefact = true;
-                }
-                process.stdin.removeListener('keypress', handler);
-                this.render();
-            } else {
-                console.log('Cancelled.');
-                process.stdin.removeListener('keypress', handler);
-                this.render();
-            }
-        };
-
-        process.stdin.on('keypress', handler);
-    }
-
-    showInventory() {
-        if (this.inventory.size() === 0 && !this.hasArtefact) {
-            console.log('Inventory is empty.');
-            return;
-        }
-
-        console.log('📦 INVENTORY:');
-        this.inventory.getItems().forEach((item, idx) => {
-            console.log(`  ${idx + 1}: ${item.name}`);
-        });
-        if (this.hasArtefact) {
-            console.log('  ✦ Artefact (permanent)');
-        }
-        console.log('Press any key to continue...');
-
-        const handler = () => {
-            process.stdin.removeListener('keypress', handler);
-            this.render();
-        };
-        process.stdin.on('keypress', handler);
-    }
-
-    render() {
-        this.renderer.render(
-            this.dungeon,
-            this.player,
-            this.monsters,
-            this.boss,
-            this.inventory,
-            this.level,
-            this.maxLevel,
-            this.hasArtefact,
-            this.items
-        );
-    }
-
-    run() {
-        readline.emitKeypressEvents(process.stdin);
-        process.stdin.setRawMode(true);
-
-        this.render();
-
-        process.stdin.on('keypress', (str, key) => {
-            if (key.ctrl && key.name === 'c') {
-                process.exit();
-            }
-
-            if (key.name === 'space') {
-                this.attackNearest();
-                this.moveMonsters();
-                this.render();
-                return;
-            }
-
-            if (key.name === 'e') {
-                this.pickUp();
-                this.render();
-                return;
-            }
-
-            if (key.name === 'u') {
-                this.useItem();
-                return;
-            }
-
-            if (key.name === 'i') {
-                this.showInventory();
-                return;
-            }
-
-            if (key.name === '>') {
-                const stairs = this.dungeon.getStairs();
-                if (this.player.x === stairs.x && this.player.y === stairs.y) {
-                    if (this.shouldBlockStairs()) {
-                        console.log('⚠️ You must defeat the boss before proceeding!');
-                        return;
-                    }
-                    this.goToNextLevel();
-                    this.render();
-                    return;
-                } else {
-                    console.log('You are not on the stairs!');
-                    return;
-                }
-            }
-
-            let moved = false;
-            switch (key.name) {
-                case 'up':
-                case 'w':
-                    moved = this.player.move(0, -1, this.dungeon, this.monsters, this.boss, this.combat, this);
-                    break;
-                case 'down':
-                case 's':
-                    moved = this.player.move(0, 1, this.dungeon, this.monsters, this.boss, this.combat, this);
-                    break;
-                case 'left':
-                case 'a':
-                    moved = this.player.move(-1, 0, this.dungeon, this.monsters, this.boss, this.combat, this);
-                    break;
-                case 'right':
-                case 'd':
-                    moved = this.player.move(1, 0, this.dungeon, this.monsters, this.boss, this.combat, this);
-                    break;
-                default:
-                    return;
-            }
-
-            if (moved) {
-                this.moveMonsters();
-                this.render();
-            }
-        });
-    }
-}
-
-const game = new Game();
-game.run();
+Create a file projects/roguelike/game.js
+[code]
+// ============================================================
+// 1. CONSTANTES
+// ============================================================
+const W = 30;
+const H = 15;
+const MAX_LEVEL = 10;
+const PLAYER_START_HP = 20;
+const PLAYER_START_ATK = 5;
+const PLAYER_START_DEF = 2;
+const MONSTER_ATTACK_RANGE = 3;
+
+// ============================================================
+// 2. ÉTAT DU JEU
+// ============================================================
+let map = [];
+let player = { x: 0, y: 0, hp: PLAYER_START_HP, maxHp: PLAYER_START_HP, attack: PLAYER_START_ATK, defense: PLAYER_START_DEF };
+let monsters = [];
+let items = [];
+let inventory = [];
+let gameOver = false;
+let turn = 0;
+let log = [];
+let currentLevel = 1;
+
+// ============================================================
+// 3. UTILITAIRES
+// ============================================================
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function randomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// ============================================================
+// 4. GÉNÉRATION DU DONJON
+// ============================================================
+function generateDungeon(level = 1) {
+    map = [];
+    for (let y = 0; y < H; y++) {
+        map[y] = [];
+        for (let x = 0; x < W; x++) {
+            map[y][x] = '#';
+        }
+    }
+
+    const growth = Math.min(level, 5);
+    const rx = 2, ry = 2, rw = 25 + growth, rh = 10 + growth;
+    for (let y = ry; y < ry + rh && y < H; y++) {
+        for (let x = rx; x < rx + rw && x < W; x++) {
+            map[y][x] = '.';
+        }
+    }
+
+    if (level < MAX_LEVEL) {
+        const sx = Math.min(rx + rw - 2, W - 1);
+        const sy = Math.min(ry + rh - 2, H - 1);
+        map[sy][sx] = '>';
+    }
+    if (level > 1) {
+        map[ry + 1][rx + 1] = '<';
+    }
+
+    player.x = Math.min(rx + Math.floor(rw / 2), W - 1);
+    player.y = Math.min(ry + Math.floor(rh / 2), H - 1);
+    map[player.y][player.x] = '@';
+
+    // Monstres
+    monsters = [];
+    const numMonsters = 3 + Math.floor(level / 2);
+    for (let i = 0; i < numMonsters; i++) {
+        let placed = false;
+        for (let attempts = 0; attempts < 50 && !placed; attempts++) {
+            const x = rx + 1 + Math.floor(Math.random() * (rw - 2));
+            const y = ry + 1 + Math.floor(Math.random() * (rh - 2));
+            if (x < W && y < H && map[y][x] === '.' && !(x === player.x && y === player.y)) {
+                const types = ['g', 's', 'o', 'd', 'r'];
+                const type = types[i % types.length];
+                const monster = createMonster(type, level);
+                monster.x = x;
+                monster.y = y;
+                monsters.push(monster);
+                map[y][x] = type;
+                placed = true;
+            }
+        }
+    }
+
+    // Items
+    items = [];
+    const numItems = 2 + Math.floor(level / 2);
+    for (let i = 0; i < numItems; i++) {
+        let placed = false;
+        for (let attempts = 0; attempts < 30 && !placed; attempts++) {
+            const x = rx + 1 + Math.floor(Math.random() * (rw - 2));
+            const y = ry + 1 + Math.floor(Math.random() * (rh - 2));
+            if (x < W && y < H && map[y][x] === '.' && !(x === player.x && y === player.y)) {
+                const icon = ['❤️', '⚔️', '🛡️', '📜'][Math.floor(Math.random() * 4)];
+                map[y][x] = icon;
+                items.push({ x, y, type: icon });
+                placed = true;
+            }
+        }
+    }
+
+    log.push('Niveau ' + level + ' genere !');
+}
+
+// ============================================================
+// 5. CRÉATION DE MONSTRES
+// ============================================================
+function createMonster(type, level) {
+    const base = {
+        g: { name: 'Gobelin', hp: 5, attack: 2, defense: 1, symbol: 'g', xp: 5 },
+        s: { name: 'Squelette', hp: 8, attack: 3, defense: 2, symbol: 's', xp: 8 },
+        o: { name: 'Orque', hp: 12, attack: 5, defense: 3, symbol: 'o', xp: 12 },
+        d: { name: 'Demon', hp: 16, attack: 7, defense: 4, symbol: 'd', xp: 18 },
+        r: { name: 'Rat', hp: 4, attack: 2, defense: 0, symbol: 'r', xp: 3 }
+    };
+    const b = base[type] || base.g;
+    return {
+        name: b.name,
+        hp: b.hp + level * 2,
+        maxHp: b.hp + level * 2,
+        attack: b.attack + Math.floor(level / 2),
+        defense: b.defense + Math.floor(level / 3),
+        symbol: b.symbol,
+        xp: b.xp + level,
+        x: 0,
+        y: 0
+    };
+}
+
+// ============================================================
+// 6. AFFICHAGE
+// ============================================================
+function render() {
+    console.clear();
+    console.log('='.repeat(W + 4));
+    console.log('DEMON DES PROFONDEURS');
+    console.log('='.repeat(W + 4));
+    console.log('PV: ' + (player.hp || PLAYER_START_HP) + '/' + (player.maxHp || PLAYER_START_HP) + '  Pos: (' + player.x + ',' + player.y + ')  Monstres: ' + monsters.length + '  Items: ' + items.length);
+    console.log('Niveau: ' + currentLevel + '/' + MAX_LEVEL);
+    console.log('');
+
+    for (let y = 0; y < H; y++) {
+        let row = '';
+        for (let x = 0; x < W; x++) {
+            const ch = map[y][x];
+            if (ch === '@') row += '@';
+            else if (ch === '>') row += '>';
+            else if (ch === '<') row += '<';
+            else if (ch === '#') row += '#';
+            else if (ch === 'g') row += 'g';
+            else if (ch === 's') row += 's';
+            else if (ch === 'o') row += 'o';
+            else if (ch === 'd') row += 'd';
+            else if (ch === 'r') row += 'r';
+            else if (ch === '❤️') row += '❤️';
+            else if (ch === '⚔️') row += '⚔️';
+            else if (ch === '🛡️') row += '🛡️';
+            else if (ch === '📜') row += '📜';
+            else row += ch;
+        }
+        console.log(row);
+    }
+
+    console.log('');
+    console.log('-'.repeat(W + 4));
+    console.log('Log: ' + (log[log.length - 1] || 'Explore le donjon...'));
+    console.log('='.repeat(W + 4));
+    console.log('Fleches: bouger | ESPACE: attaquer | E: ramasser | U: utiliser | I: inventaire | Q: quitter');
+}
+
+// ============================================================
+// 7. DÉPLACEMENT DU JOUEUR
+// ============================================================
+function movePlayer(dx, dy) {
+    if (gameOver) return false;
+    const nx = clamp(player.x + dx, 0, W - 1);
+    const ny = clamp(player.y + dy, 0, H - 1);
+
+    if (nx === player.x && ny === player.y) return false;
+    if (map[ny][nx] === '#') return false;
+
+    const tile = map[ny][nx];
+    if (tile === '>') {
+        if (currentLevel < MAX_LEVEL) {
+            currentLevel++;
+            generateDungeon(currentLevel);
+            render();
+            log.push('Descendu au niveau ' + currentLevel);
+            return true;
+        } else {
+            log.push('Niveau maximum atteint !');
+            render();
+            return false;
+        }
+    }
+    if (tile === '<') {
+        if (currentLevel > 1) {
+            currentLevel--;
+            generateDungeon(currentLevel);
+            render();
+            log.push('Remonte au niveau ' + currentLevel);
+            return true;
+        } else {
+            log.push('Deja au niveau 1');
+            render();
+            return false;
+        }
+    }
+
+    // Ramasser un item automatiquement (optionnel)
+    const itemIndex = items.findIndex(i => i.x === nx && i.y === ny);
+    if (itemIndex !== -1) {
+        const item = items.splice(itemIndex, 1)[0];
+        inventory.push(item);
+        log.push('Vous ramassez ' + item.type);
+        // On ne se déplace pas sur la case de l'item
+        // On le ramasse simplement
+        render();
+        return true;
+    }
+
+    const monster = monsters.find(m => m.x === nx && m.y === ny);
+    if (monster) {
+        attackMonster(monster);
+        return false;
+    }
+
+    map[player.y][player.x] = '.';
+    player.x = nx;
+    player.y = ny;
+    map[ny][nx] = '@';
+    turn++;
+    moveMonsters();
+    return true;
+}
+
+// ============================================================
+// 8. COMBAT
+// ============================================================
+function attackMonster(monster) {
+    const damage = (player.attack || PLAYER_START_ATK) + Math.floor(Math.random() * 4);
+    const defense = monster.defense || 0;
+    const finalDamage = Math.max(1, damage - defense);
+    monster.hp -= finalDamage;
+    log.push('Attaque: ' + finalDamage + ' degats au ' + monster.name);
+
+    if (monster.hp <= 0) {
+        log.push(monster.name + ' vaincu !');
+        map[monster.y][monster.x] = '.';
+        monsters = monsters.filter(m => m !== monster);
+        // Drop d'item
+        if (Math.random() < 0.3) {
+            const icon = ['❤️', '⚔️', '🛡️', '📜'][Math.floor(Math.random() * 4)];
+            items.push({ x: monster.x, y: monster.y, type: icon });
+            map[monster.y][monster.x] = icon;
+            log.push('Drop: ' + icon);
+        }
+    }
+    render();
+}
+
+// ============================================================
+// 9. IA DES MONSTRES
+// ============================================================
+function moveMonsters() {
+    monsters.forEach(m => {
+        const dx = player.x - m.x;
+        const dy = player.y - m.y;
+        const dist = Math.abs(dx) + Math.abs(dy);
+
+        if (dist <= MONSTER_ATTACK_RANGE) {
+            let moveX = 0, moveY = 0;
+            if (Math.abs(dx) >= Math.abs(dy)) {
+                moveX = Math.sign(dx);
+            } else {
+                moveY = Math.sign(dy);
+            }
+
+            // 20% de chance de mouvement aléatoire (pour varier)
+            if (Math.random() < 0.2 && dist > 2) {
+                const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+                const dir = dirs[Math.floor(Math.random() * dirs.length)];
+                moveX = dir[0];
+                moveY = dir[1];
+            }
+
+            const nx = m.x + moveX;
+            const ny = m.y + moveY;
+
+            if (nx === player.x && ny === player.y) {
+                const damage = m.attack + Math.floor(Math.random() * 3);
+                const defense = player.defense || PLAYER_START_DEF;
+                const finalDamage = Math.max(1, damage - defense);
+                player.hp = (player.hp || PLAYER_START_HP) - finalDamage;
+                log.push(m.name + ' vous attaque (' + finalDamage + ')');
+                if (player.hp <= 0) {
+                    player.hp = 0;
+                    gameOver = true;
+                    log.push('VOUS ETES MORT !');
+                    render();
+                }
+                return;
+            }
+
+            if (map[ny] && map[ny][nx] === '.' && !(nx === player.x && ny === player.y)) {
+                map[m.y][m.x] = '.';
+                m.x = nx;
+                m.y = ny;
+                map[ny][nx] = m.symbol;
+            }
+        } else {
+            const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+            const dir = dirs[Math.floor(Math.random() * dirs.length)];
+            const nx = m.x + dir[0];
+            const ny = m.y + dir[1];
+            if (map[ny] && map[ny][nx] === '.' && !(nx === player.x && ny === player.y)) {
+                map[m.y][m.x] = '.';
+                m.x = nx;
+                m.y = ny;
+                map[ny][nx] = m.symbol;
+            }
+        }
+    });
+    render();
+}
+
+// ============================================================
+// 10. GESTION DES ITEMS
+// ============================================================
+function pickupItem() {
+    const idx = items.findIndex(i => i.x === player.x && i.y === player.y);
+    if (idx === -1) {
+        log.push('Rien a ramasser.');
+        render();
+        return;
+    }
+    const item = items.splice(idx, 1)[0];
+    inventory.push(item);
+    map[player.y][player.x] = '@';
+    log.push('Vous ramassez ' + item.type);
+    render();
+}
+
+function useItem(itemType) {
+    const idx = inventory.findIndex(i => i.type === itemType);
+    if (idx === -1) {
+        log.push('Vous n\'avez pas de ' + itemType);
+        render();
+        return;
+    }
+    const item = inventory.splice(idx, 1)[0];
+    if (itemType === '❤️') {
+        const heal = 10 + Math.floor(Math.random() * 10);
+        player.hp = Math.min(player.maxHp || PLAYER_START_HP, (player.hp || PLAYER_START_HP) + heal);
+        log.push('Potion utilisee (+' + heal + ' PV)');
+    } else if (itemType === '⚔️') {
+        player.attack = (player.attack || PLAYER_START_ATK) + 2;
+        log.push('Attaque augmentee de 2 !');
+    } else if (itemType === '🛡️') {
+        player.defense = (player.defense || PLAYER_START_DEF) + 1;
+        log.push('Defense augmentee de 1 !');
+    } else if (itemType === '📜') {
+        const random = Math.random();
+        if (random < 0.3) {
+            player.hp = Math.min(player.maxHp || PLAYER_START_HP, (player.hp || PLAYER_START_HP) + 15);
+            log.push('Soin magique +15 PV !');
+        } else if (random < 0.6) {
+            const damage = 10 + Math.floor(Math.random() * 10);
+            monsters.forEach(m => { m.hp -= damage; if (m.hp <= 0) log.push(m.name + ' vaincu !'); });
+            monsters = monsters.filter(m => m.hp > 0);
+            log.push('Explosion magique !');
+        } else {
+            log.push('Rien ne se passe...');
+        }
+    }
+    render();
+}
+
+function showInventory() {
+    if (inventory.length === 0) {
+        log.push('Inventaire vide.');
+    } else {
+        const list = inventory.map(i => i.type).join(', ');
+        log.push('Inventaire : ' + list);
+    }
+    render();
+}
+
+// ============================================================
+// 11. GESTION DES TOUCHES
+// ============================================================
+process.stdin.on('keypress', (str, key) => {
+    if (key.ctrl && key.name === 'c') { process.exit(); }
+    if (key.name === 'q') { process.exit(); }
+
+    if (gameOver) {
+        if (key.name === 'r') {
+            gameOver = false;
+            monsters = [];
+            items = [];
+            inventory = [];
+            log = [];
+            player.hp = PLAYER_START_HP;
+            player.maxHp = PLAYER_START_HP;
+            player.attack = PLAYER_START_ATK;
+            player.defense = PLAYER_START_DEF;
+            currentLevel = 1;
+            generateDungeon(currentLevel);
+            render();
+            log.push('Nouvelle partie !');
+        }
+        return;
+    }
+
+    if (key.name === 'space') {
+        let closest = null;
+        let closestDist = Infinity;
+        monsters.forEach(m => {
+            const dist = Math.abs(m.x - player.x) + Math.abs(m.y - player.y);
+            if (dist < closestDist && dist <= 2) {
+                closestDist = dist;
+                closest = m;
+            }
+        });
+        if (closest) {
+            attackMonster(closest);
+        } else {
+            log.push('Aucun monstre proche');
+            render();
+        }
+        return;
+    }
+
+    if (key.name === 'e') {
+        pickupItem();
+        return;
+    }
+    if (key.name === 'u') {
+        if (inventory.length === 0) {
+            log.push('Inventaire vide.');
+            render();
+            return;
+        }
+        const item = inventory.pop();
+        useItem(item.type);
+        return;
+    }
+    if (key.name === 'i') {
+        showInventory();
+        return;
+    }
+
+    let dx = 0, dy = 0;
+    if (key.name === 'up') dy = -1;
+    else if (key.name === 'down') dy = 1;
+    else if (key.name === 'left') dx = -1;
+    else if (key.name === 'right') dx = 1;
+
+    if (dx !== 0 || dy !== 0) {
+        movePlayer(dx, dy);
+        render();
+        if (gameOver) {
+            log.push('Game Over - Appuie sur R pour recommencer');
+            render();
+        }
+    }
+});
+
+// ============================================================
+// 12. INITIALISATION
+// ============================================================
+player.hp = PLAYER_START_HP;
+player.maxHp = PLAYER_START_HP;
+player.attack = PLAYER_START_ATK;
+player.defense = PLAYER_START_DEF;
+generateDungeon(1);
+render();
+log.push('Explore le donjon et elimine les monstres !');
+[/code]
