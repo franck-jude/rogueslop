@@ -10,19 +10,24 @@ const PLAYER_START_HP = 20;
 const PLAYER_START_ATK = 5;
 const PLAYER_START_DEF = 2;
 const MONSTER_ATTACK_RANGE = 3;
+const MAX_INVENTORY = 20;
+const ROOM_MIN_SIZE = 4;
+const ROOM_MAX_SIZE = 6;
 
 // ============================================================
-// 2. ÉTAT DU JEU
+// 2. ÉTAT DU JEU (centralisé)
 // ============================================================
-let map = [];
-let player = { x: 0, y: 0, hp: PLAYER_START_HP, maxHp: PLAYER_START_HP, attack: PLAYER_START_ATK, defense: PLAYER_START_DEF };
-let monsters = [];
-let items = [];
-let inventory = [];
-let gameOver = false;
-let turn = 0;
-let log = [];
-let currentLevel = 1;
+const game = {
+    map: [],
+    player: { x: 0, y: 0, hp: PLAYER_START_HP, maxHp: PLAYER_START_HP, attack: PLAYER_START_ATK, defense: PLAYER_START_DEF },
+    monsters: [],
+    items: [],
+    inventory: [],
+    gameOver: false,
+    turn: 0,
+    log: [],
+    currentLevel: 1
+};
 
 // ============================================================
 // 3. UTILITAIRES
@@ -35,11 +40,20 @@ function randomInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+function isTileFree(x, y, excludePlayer = true) {
+    if (x < 0 || x >= W || y < 0 || y >= H) return false;
+    if (game.map[y][x] !== '.') return false;
+    if (excludePlayer && x === game.player.x && y === game.player.y) return false;
+    if (game.monsters.some(m => m.x === x && m.y === y)) return false;
+    if (game.items.some(i => i.x === x && i.y === y)) return false;
+    return true;
+}
+
 // ============================================================
 // 4. GÉNÉRATION DU DONJON
 // ============================================================
 function generateDungeon(level = 1) {
-    map = [];
+    const map = [];
     for (let y = 0; y < H; y++) {
         map[y] = [];
         for (let x = 0; x < W; x++) {
@@ -64,25 +78,25 @@ function generateDungeon(level = 1) {
         map[ry + 1][rx + 1] = '<';
     }
 
-    player.x = Math.min(rx + Math.floor(rw / 2), W - 1);
-    player.y = Math.min(ry + Math.floor(rh / 2), H - 1);
-    map[player.y][player.x] = '@';
+    game.player.x = Math.min(rx + Math.floor(rw / 2), W - 1);
+    game.player.y = Math.min(ry + Math.floor(rh / 2), H - 1);
+    map[game.player.y][game.player.x] = '@';
 
-    // Monstres
-    monsters = [];
+    // Monstres (sans overlap)
+    game.monsters = [];
     const numMonsters = 3 + Math.floor(level / 2);
     for (let i = 0; i < numMonsters; i++) {
         let placed = false;
         for (let attempts = 0; attempts < 50 && !placed; attempts++) {
             const x = rx + 1 + Math.floor(Math.random() * (rw - 2));
             const y = ry + 1 + Math.floor(Math.random() * (rh - 2));
-            if (x < W && y < H && map[y][x] === '.' && !(x === player.x && y === player.y)) {
+            if (isTileFree(x, y, true)) {
                 const types = ['g', 's', 'o', 'd', 'r'];
                 const type = types[i % types.length];
                 const monster = createMonster(type, level);
                 monster.x = x;
                 monster.y = y;
-                monsters.push(monster);
+                game.monsters.push(monster);
                 map[y][x] = type;
                 placed = true;
             }
@@ -90,23 +104,24 @@ function generateDungeon(level = 1) {
     }
 
     // Items
-    items = [];
+    game.items = [];
     const numItems = 2 + Math.floor(level / 2);
     for (let i = 0; i < numItems; i++) {
         let placed = false;
         for (let attempts = 0; attempts < 30 && !placed; attempts++) {
             const x = rx + 1 + Math.floor(Math.random() * (rw - 2));
             const y = ry + 1 + Math.floor(Math.random() * (rh - 2));
-            if (x < W && y < H && map[y][x] === '.' && !(x === player.x && y === player.y)) {
+            if (isTileFree(x, y, true)) {
                 const icon = ['❤️', '⚔️', '🛡️', '📜'][Math.floor(Math.random() * 4)];
                 map[y][x] = icon;
-                items.push({ x, y, type: icon });
+                game.items.push({ x, y, type: icon });
                 placed = true;
             }
         }
     }
 
-    log.push('Niveau ' + level + ' genere !');
+    game.map = map;
+    game.log.push('Niveau ' + level + ' genere !');
 }
 
 // ============================================================
@@ -138,12 +153,13 @@ function createMonster(type, level) {
 // 6. AFFICHAGE
 // ============================================================
 function render() {
+    const { map, player, monsters, items, inventory, currentLevel } = game;
     console.clear();
     console.log('='.repeat(W + 4));
     console.log('DEMON DES PROFONDEURS');
     console.log('='.repeat(W + 4));
-    console.log('PV: ' + (player.hp || PLAYER_START_HP) + '/' + (player.maxHp || PLAYER_START_HP) + '  Pos: (' + player.x + ',' + player.y + ')  Monstres: ' + monsters.length + '  Items: ' + items.length);
-    console.log('Niveau: ' + currentLevel + '/' + MAX_LEVEL);
+    console.log(`PV: ${player.hp}/${player.maxHp}  Pos: (${player.x},${player.y})  Monstres: ${monsters.length}  Items: ${items.length}`);
+    console.log(`Niveau: ${currentLevel}/${MAX_LEVEL}  Inventaire: ${inventory.length}/${MAX_INVENTORY}`);
     console.log('');
 
     for (let y = 0; y < H; y++) {
@@ -170,109 +186,189 @@ function render() {
 
     console.log('');
     console.log('-'.repeat(W + 4));
-    console.log('Log: ' + (log[log.length - 1] || 'Explore le donjon...'));
+    console.log(`Log: ${game.log[game.log.length - 1] || 'Explore le donjon...'}`);
     console.log('='.repeat(W + 4));
     console.log('Fleches: bouger | ESPACE: attaquer | E: ramasser | U: utiliser | I: inventaire | Q: quitter');
 }
 
 // ============================================================
-// 7. DÉPLACEMENT DU JOUEUR
+// 7. GESTION DES ESCALIERS
 // ============================================================
-function movePlayer(dx, dy) {
-    if (gameOver) return false;
-    const nx = clamp(player.x + dx, 0, W - 1);
-    const ny = clamp(player.y + dy, 0, H - 1);
-
-    if (nx === player.x && ny === player.y) return false;
-    if (map[ny][nx] === '#') return false;
-
-    const tile = map[ny][nx];
+function handleStairs(tile) {
     if (tile === '>') {
-        if (currentLevel < MAX_LEVEL) {
-            currentLevel++;
-            generateDungeon(currentLevel);
+        if (game.currentLevel < MAX_LEVEL) {
+            game.currentLevel++;
+            generateDungeon(game.currentLevel);
             render();
-            log.push('Descendu au niveau ' + currentLevel);
+            game.log.push('Descendu au niveau ' + game.currentLevel);
             return true;
         } else {
-            log.push('Niveau maximum atteint !');
+            game.log.push('Niveau maximum atteint !');
             render();
             return false;
         }
     }
     if (tile === '<') {
-        if (currentLevel > 1) {
-            currentLevel--;
-            generateDungeon(currentLevel);
+        if (game.currentLevel > 1) {
+            game.currentLevel--;
+            generateDungeon(game.currentLevel);
             render();
-            log.push('Remonte au niveau ' + currentLevel);
+            game.log.push('Remonte au niveau ' + game.currentLevel);
             return true;
         } else {
-            log.push('Deja au niveau 1');
+            game.log.push('Deja au niveau 1');
+            render();
+            return false;
+        }
+    }
+    return null;
+}
+
+// ============================================================
+// 8. GESTION DES ITEMS
+// ============================================================
+function pickupItem() {
+    const idx = game.items.findIndex(i => i.x === game.player.x && i.y === game.player.y);
+    if (idx === -1) {
+        game.log.push('Rien a ramasser.');
+        render();
+        return;
+    }
+    if (game.inventory.length >= MAX_INVENTORY) {
+        game.log.push('Inventaire plein !');
+        render();
+        return;
+    }
+    const item = game.items.splice(idx, 1)[0];
+    game.inventory.push(item);
+    game.log.push('Vous ramassez ' + item.type);
+    render();
+}
+
+function useItem(itemType) {
+    const idx = game.inventory.findIndex(i => i.type === itemType);
+    if (idx === -1) {
+        game.log.push('Vous n\'avez pas de ' + itemType);
+        render();
+        return;
+    }
+    const item = game.inventory.splice(idx, 1)[0];
+    if (itemType === '❤️') {
+        const heal = 10 + Math.floor(Math.random() * 10);
+        game.player.hp = Math.min(game.player.maxHp, game.player.hp + heal);
+        game.log.push('Potion utilisee (+' + heal + ' PV)');
+    } else if (itemType === '⚔️') {
+        game.player.attack += 2;
+        game.log.push('Attaque augmentee de 2 !');
+    } else if (itemType === '🛡️') {
+        game.player.defense += 1;
+        game.log.push('Defense augmentee de 1 !');
+    } else if (itemType === '📜') {
+        const random = Math.random();
+        if (random < 0.3) {
+            game.player.hp = Math.min(game.player.maxHp, game.player.hp + 15);
+            game.log.push('Soin magique +15 PV !');
+        } else if (random < 0.6) {
+            const damage = 10 + Math.floor(Math.random() * 10);
+            game.monsters.forEach(m => { m.hp -= damage; if (m.hp <= 0) game.log.push(m.name + ' vaincu !'); });
+            game.monsters = game.monsters.filter(m => m.hp > 0);
+            game.log.push('Explosion magique !');
+        } else {
+            game.log.push('Rien ne se passe...');
+        }
+    }
+    render();
+}
+
+function showInventory() {
+    if (game.inventory.length === 0) {
+        game.log.push('Inventaire vide.');
+    } else {
+        const list = game.inventory.map(i => i.type).join(', ');
+        game.log.push('Inventaire : ' + list);
+    }
+    render();
+}
+
+// ============================================================
+// 9. DÉPLACEMENT DU JOUEUR (refactorisé)
+// ============================================================
+function movePlayer(dx, dy) {
+    if (game.gameOver) return false;
+    const nx = clamp(game.player.x + dx, 0, W - 1);
+    const ny = clamp(game.player.y + dy, 0, H - 1);
+    if (nx === game.player.x && ny === game.player.y) return false;
+    if (game.map[ny][nx] === '#') return false;
+
+    // Vérifier les escaliers
+    const stairsResult = handleStairs(game.map[ny][nx]);
+    if (stairsResult !== null) return stairsResult;
+
+    // Vérifier les items
+    const itemIdx = game.items.findIndex(i => i.x === nx && i.y === ny);
+    if (itemIdx !== -1) {
+        if (game.inventory.length < MAX_INVENTORY) {
+            const item = game.items.splice(itemIdx, 1)[0];
+            game.inventory.push(item);
+            game.log.push('Vous ramassez ' + item.type);
+            render();
+            return true;
+        } else {
+            game.log.push('Inventaire plein !');
             render();
             return false;
         }
     }
 
-    // Ramasser un item automatiquement (optionnel)
-    const itemIndex = items.findIndex(i => i.x === nx && i.y === ny);
-    if (itemIndex !== -1) {
-        const item = items.splice(itemIndex, 1)[0];
-        inventory.push(item);
-        log.push('Vous ramassez ' + item.type);
-        // On ne se déplace pas sur la case de l'item
-        // On le ramasse simplement
-        render();
-        return true;
-    }
-
-    const monster = monsters.find(m => m.x === nx && m.y === ny);
+    // Vérifier les monstres
+    const monster = game.monsters.find(m => m.x === nx && m.y === ny);
     if (monster) {
         attackMonster(monster);
         return false;
     }
 
-    map[player.y][player.x] = '.';
-    player.x = nx;
-    player.y = ny;
-    map[ny][nx] = '@';
-    turn++;
+    // Déplacement normal
+    game.map[game.player.y][game.player.x] = '.';
+    game.player.x = nx;
+    game.player.y = ny;
+    game.map[ny][nx] = '@';
+    game.turn++;
     moveMonsters();
+    render();
     return true;
 }
 
 // ============================================================
-// 8. COMBAT
+// 10. COMBAT
 // ============================================================
 function attackMonster(monster) {
-    const damage = (player.attack || PLAYER_START_ATK) + Math.floor(Math.random() * 4);
+    const damage = game.player.attack + Math.floor(Math.random() * 4);
     const defense = monster.defense || 0;
     const finalDamage = Math.max(1, damage - defense);
     monster.hp -= finalDamage;
-    log.push('Attaque: ' + finalDamage + ' degats au ' + monster.name);
+    game.log.push('Attaque: ' + finalDamage + ' degats au ' + monster.name);
 
     if (monster.hp <= 0) {
-        log.push(monster.name + ' vaincu !');
-        map[monster.y][monster.x] = '.';
-        monsters = monsters.filter(m => m !== monster);
-        // Drop d'item
+        game.log.push(monster.name + ' vaincu !');
+        game.map[monster.y][monster.x] = '.';
+        game.monsters = game.monsters.filter(m => m !== monster);
         if (Math.random() < 0.3) {
             const icon = ['❤️', '⚔️', '🛡️', '📜'][Math.floor(Math.random() * 4)];
-            items.push({ x: monster.x, y: monster.y, type: icon });
-            map[monster.y][monster.x] = icon;
-            log.push('Drop: ' + icon);
+            game.items.push({ x: monster.x, y: monster.y, type: icon });
+            game.map[monster.y][monster.x] = icon;
+            game.log.push('Drop: ' + icon);
         }
     }
     render();
 }
 
 // ============================================================
-// 9. IA DES MONSTRES
+// 11. IA DES MONSTRES
 // ============================================================
 function moveMonsters() {
-    monsters.forEach(m => {
-        const dx = player.x - m.x;
-        const dy = player.y - m.y;
+    game.monsters.forEach(m => {
+        const dx = game.player.x - m.x;
+        const dy = game.player.y - m.y;
         const dist = Math.abs(dx) + Math.abs(dy);
 
         if (dist <= MONSTER_ATTACK_RANGE) {
@@ -282,49 +378,45 @@ function moveMonsters() {
             } else {
                 moveY = Math.sign(dy);
             }
-
-            // 20% de chance de mouvement aléatoire (pour varier)
             if (Math.random() < 0.2 && dist > 2) {
                 const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
                 const dir = dirs[Math.floor(Math.random() * dirs.length)];
                 moveX = dir[0];
                 moveY = dir[1];
             }
-
             const nx = m.x + moveX;
             const ny = m.y + moveY;
 
-            if (nx === player.x && ny === player.y) {
+            if (nx === game.player.x && ny === game.player.y) {
                 const damage = m.attack + Math.floor(Math.random() * 3);
-                const defense = player.defense || PLAYER_START_DEF;
+                const defense = game.player.defense || 0;
                 const finalDamage = Math.max(1, damage - defense);
-                player.hp = (player.hp || PLAYER_START_HP) - finalDamage;
-                log.push(m.name + ' vous attaque (' + finalDamage + ')');
-                if (player.hp <= 0) {
-                    player.hp = 0;
-                    gameOver = true;
-                    log.push('VOUS ETES MORT !');
+                game.player.hp -= finalDamage;
+                game.log.push(m.name + ' vous attaque (' + finalDamage + ')');
+                if (game.player.hp <= 0) {
+                    game.player.hp = 0;
+                    game.gameOver = true;
+                    game.log.push('VOUS ETES MORT !');
                     render();
                 }
                 return;
             }
-
-            if (map[ny] && map[ny][nx] === '.' && !(nx === player.x && ny === player.y)) {
-                map[m.y][m.x] = '.';
+            if (isTileFree(nx, ny, true)) {
+                game.map[m.y][m.x] = '.';
                 m.x = nx;
                 m.y = ny;
-                map[ny][nx] = m.symbol;
+                game.map[ny][nx] = m.symbol;
             }
         } else {
             const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
             const dir = dirs[Math.floor(Math.random() * dirs.length)];
             const nx = m.x + dir[0];
             const ny = m.y + dir[1];
-            if (map[ny] && map[ny][nx] === '.' && !(nx === player.x && ny === player.y)) {
-                map[m.y][m.x] = '.';
+            if (isTileFree(nx, ny, true)) {
+                game.map[m.y][m.x] = '.';
                 m.x = nx;
                 m.y = ny;
-                map[ny][nx] = m.symbol;
+                game.map[ny][nx] = m.symbol;
             }
         }
     });
@@ -332,89 +424,28 @@ function moveMonsters() {
 }
 
 // ============================================================
-// 10. GESTION DES ITEMS
-// ============================================================
-function pickupItem() {
-    const idx = items.findIndex(i => i.x === player.x && i.y === player.y);
-    if (idx === -1) {
-        log.push('Rien a ramasser.');
-        render();
-        return;
-    }
-    const item = items.splice(idx, 1)[0];
-    inventory.push(item);
-    map[player.y][player.x] = '@';
-    log.push('Vous ramassez ' + item.type);
-    render();
-}
-
-function useItem(itemType) {
-    const idx = inventory.findIndex(i => i.type === itemType);
-    if (idx === -1) {
-        log.push('Vous n\'avez pas de ' + itemType);
-        render();
-        return;
-    }
-    const item = inventory.splice(idx, 1)[0];
-    if (itemType === '❤️') {
-        const heal = 10 + Math.floor(Math.random() * 10);
-        player.hp = Math.min(player.maxHp || PLAYER_START_HP, (player.hp || PLAYER_START_HP) + heal);
-        log.push('Potion utilisee (+' + heal + ' PV)');
-    } else if (itemType === '⚔️') {
-        player.attack = (player.attack || PLAYER_START_ATK) + 2;
-        log.push('Attaque augmentee de 2 !');
-    } else if (itemType === '🛡️') {
-        player.defense = (player.defense || PLAYER_START_DEF) + 1;
-        log.push('Defense augmentee de 1 !');
-    } else if (itemType === '📜') {
-        const random = Math.random();
-        if (random < 0.3) {
-            player.hp = Math.min(player.maxHp || PLAYER_START_HP, (player.hp || PLAYER_START_HP) + 15);
-            log.push('Soin magique +15 PV !');
-        } else if (random < 0.6) {
-            const damage = 10 + Math.floor(Math.random() * 10);
-            monsters.forEach(m => { m.hp -= damage; if (m.hp <= 0) log.push(m.name + ' vaincu !'); });
-            monsters = monsters.filter(m => m.hp > 0);
-            log.push('Explosion magique !');
-        } else {
-            log.push('Rien ne se passe...');
-        }
-    }
-    render();
-}
-
-function showInventory() {
-    if (inventory.length === 0) {
-        log.push('Inventaire vide.');
-    } else {
-        const list = inventory.map(i => i.type).join(', ');
-        log.push('Inventaire : ' + list);
-    }
-    render();
-}
-
-// ============================================================
-// 11. GESTION DES TOUCHES
+// 12. GESTION DES TOUCHES
 // ============================================================
 process.stdin.on('keypress', (str, key) => {
     if (key.ctrl && key.name === 'c') { process.exit(); }
     if (key.name === 'q') { process.exit(); }
 
-    if (gameOver) {
+    if (game.gameOver) {
         if (key.name === 'r') {
-            gameOver = false;
-            monsters = [];
-            items = [];
-            inventory = [];
-            log = [];
-            player.hp = PLAYER_START_HP;
-            player.maxHp = PLAYER_START_HP;
-            player.attack = PLAYER_START_ATK;
-            player.defense = PLAYER_START_DEF;
-            currentLevel = 1;
-            generateDungeon(currentLevel);
+            // Reset complet
+            game.monsters = [];
+            game.items = [];
+            game.inventory = [];
+            game.log = [];
+            game.player.hp = PLAYER_START_HP;
+            game.player.maxHp = PLAYER_START_HP;
+            game.player.attack = PLAYER_START_ATK;
+            game.player.defense = PLAYER_START_DEF;
+            game.currentLevel = 1;
+            game.gameOver = false;
+            generateDungeon(game.currentLevel);
             render();
-            log.push('Nouvelle partie !');
+            game.log.push('Nouvelle partie !');
         }
         return;
     }
@@ -422,8 +453,8 @@ process.stdin.on('keypress', (str, key) => {
     if (key.name === 'space') {
         let closest = null;
         let closestDist = Infinity;
-        monsters.forEach(m => {
-            const dist = Math.abs(m.x - player.x) + Math.abs(m.y - player.y);
+        game.monsters.forEach(m => {
+            const dist = Math.abs(m.x - game.player.x) + Math.abs(m.y - game.player.y);
             if (dist < closestDist && dist <= 2) {
                 closestDist = dist;
                 closest = m;
@@ -432,7 +463,7 @@ process.stdin.on('keypress', (str, key) => {
         if (closest) {
             attackMonster(closest);
         } else {
-            log.push('Aucun monstre proche');
+            game.log.push('Aucun monstre proche');
             render();
         }
         return;
@@ -443,12 +474,12 @@ process.stdin.on('keypress', (str, key) => {
         return;
     }
     if (key.name === 'u') {
-        if (inventory.length === 0) {
-            log.push('Inventaire vide.');
+        if (game.inventory.length === 0) {
+            game.log.push('Inventaire vide.');
             render();
             return;
         }
-        const item = inventory.pop();
+        const item = game.inventory.pop();
         useItem(item.type);
         return;
     }
@@ -466,21 +497,21 @@ process.stdin.on('keypress', (str, key) => {
     if (dx !== 0 || dy !== 0) {
         movePlayer(dx, dy);
         render();
-        if (gameOver) {
-            log.push('Game Over - Appuie sur R pour recommencer');
+        if (game.gameOver) {
+            game.log.push('Game Over - Appuie sur R pour recommencer');
             render();
         }
     }
 });
 
 // ============================================================
-// 12. INITIALISATION
+// 13. INITIALISATION
 // ============================================================
-player.hp = PLAYER_START_HP;
-player.maxHp = PLAYER_START_HP;
-player.attack = PLAYER_START_ATK;
-player.defense = PLAYER_START_DEF;
+game.player.hp = PLAYER_START_HP;
+game.player.maxHp = PLAYER_START_HP;
+game.player.attack = PLAYER_START_ATK;
+game.player.defense = PLAYER_START_DEF;
 generateDungeon(1);
 render();
-log.push('Explore le donjon et elimine les monstres !');
+game.log.push('Explore le donjon et elimine les monstres !');
 [/code]
